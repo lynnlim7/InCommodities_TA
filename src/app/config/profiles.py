@@ -12,9 +12,9 @@ from app.config.schema import (
 from app.core.profiles import (
     ContinuousProfile,
     HourlyWindowProfile,
+    LoadProfile,
     ProfileRegistry,
 )
-
 
 WEEKDAY_INDEX = {
     name: index
@@ -27,7 +27,7 @@ def build_profile_registry(
 ) -> ProfileRegistry:
     """Build load-profile behaviours from validated configuration."""
 
-    profiles = {}
+    profiles: dict[str, LoadProfile] = {}
 
     for name, profile_config in config.load_profiles.items():
 

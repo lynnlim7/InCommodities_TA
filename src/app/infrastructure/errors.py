@@ -2,9 +2,10 @@
 Errors raised while loading trade data. 
 """
 
-from __future__ import annotations 
+from __future__ import annotations
 
 from dataclasses import dataclass
+
 
 class TradeSourceError(Exception):
     """Trade source cannot be read or has an invalid structure."""

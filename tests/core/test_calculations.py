@@ -19,7 +19,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.core.calculations import calculate_positions
+from app.core.calculations import calculate_positions, contributing_trades
 from app.core.errors import UnsupportedAreaError
 from app.core.models import BuySell
 from app.core.profiles import ContinuousProfile, HourlyWindowProfile, ProfileRegistry
@@ -270,3 +270,82 @@ def test_a_trade_in_an_unsupported_area_fails_the_run():
             profiles=BASE_ONLY,
             supported_areas=TOKYO,
         )
+
+
+# --- Drill-down: which trades produced an aggregated position -----------------
+
+
+def test_contributing_trades_returns_only_the_requested_area_and_profile():
+    """The drill-down answers for one position row, not for the whole book."""
+    positions_book = book(
+        make_trade(trade_id="TK-BASE", area="Tokyo", load_profile="Base"),
+        make_trade(trade_id="TK-PEAK", area="Tokyo", load_profile="Peak"),
+        make_trade(trade_id="KS-BASE", area="Kansai", load_profile="Base"),
+    )
+
+    contributions = contributing_trades(
+        trade_book=positions_book,
+        area="Tokyo",
+        load_profile="Base",
+        period=OCTOBER,
+        profiles=ProfileRegistry(profiles={"Base": ContinuousProfile(), "Peak": PEAK}),
+    )
+
+    assert [c.trade.trade_id for c in contributions] == ["TK-BASE"]
+
+
+def test_contributing_trades_report_the_hours_that_explain_the_aggregate():
+    """The applicable hours are what make the position non-additive.
+
+    Two adjacent 10 MW and 5 MW trades do not make a 15 MW October position;
+    they make 336 and 408 hours of it respectively. Reporting the hours is the
+    only honest way for a drill-down to show contractual MW without implying
+    they can be summed.
+    """
+    contributions = contributing_trades(
+        trade_book=book(
+            make_trade(trade_id="A", volume_mw="10", start="2026-10-01", end="2026-10-15"),
+            make_trade(trade_id="B", volume_mw="5", start="2026-10-15", end="2026-11-01"),
+        ),
+        area="Tokyo",
+        load_profile="Base",
+        period=OCTOBER,
+        profiles=BASE_ONLY,
+    )
+
+    assert [(c.trade.trade_id, c.applicable_hours) for c in contributions] == [
+        ("A", Decimal("336")),
+        ("B", Decimal("408")),
+    ]
+
+
+def test_contributing_trades_excludes_trades_with_no_applicable_hours():
+    """A trade must both overlap the period and deliver hours inside it.
+
+    This is the same two-part rule the engine applies, so the drill-down can
+    never show a trade that did not move the number: the September trade does
+    not overlap October at all, and the Peak trade overlaps a Saturday on
+    which Peak does not deliver.
+    """
+    saturday = reporting("2026-10-10", "2026-10-10", "2026-10-11")
+
+    assert (
+        contributing_trades(
+            trade_book=book(make_trade(start="2026-09-01", end="2026-10-01")),
+            area="Tokyo",
+            load_profile="Base",
+            period=OCTOBER,
+            profiles=BASE_ONLY,
+        )
+        == ()
+    )
+    assert (
+        contributing_trades(
+            trade_book=book(make_trade(load_profile="Peak")),
+            area="Tokyo",
+            load_profile="Peak",
+            period=saturday,
+            profiles=ProfileRegistry(profiles={"Peak": PEAK}),
+        )
+        == ()
+    )

@@ -197,3 +197,18 @@ def test_a_padded_direction_is_stripped_like_every_other_field(tmp_path):
     [trade] = CsvTradeRepository(path=path).load()
 
     assert trade.buy_sell is BuySell.BUY
+
+
+def test_the_descriptive_product_label_is_carried_through_to_the_domain(tmp_path):
+    """The product name reaches the trade so a drill-down can name the deal.
+
+    It stays descriptive metadata: delivery comes from ``start_date``,
+    ``end_date`` and ``load_profile``, and nothing parses this string. It is
+    carried only because a trader recognises "Oct-26 Base" faster than a
+    trade id when checking which deals produced a position.
+    """
+    path = write_csv(tmp_path, HEADER, VALID_ROW)
+
+    [trade] = CsvTradeRepository(path=path).load()
+
+    assert trade.product == "Oct-26 Base"

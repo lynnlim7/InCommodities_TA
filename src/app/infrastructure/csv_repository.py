@@ -12,8 +12,8 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.core.models import DeliveryPeriod, Trade, TradeBook
-from app.infrastructure.schemas import CSV_HEADERS, CsvTradeRow
 from app.infrastructure.errors import RowError, TradeBookValidationError, TradeSourceError
+from app.infrastructure.schemas import CSV_HEADERS, CsvTradeRow
 
 DEFAULT_TRADES_CSV = (
     Path(__file__).resolve().parent.parent / "data" / "trades.csv"
@@ -132,6 +132,7 @@ def _to_trade(
             end=row.end_date,
         ),
         volume_mw=row.volume_mw,
+        product=row.product,
     )
 
 def _validate_headers(

@@ -43,6 +43,7 @@ def make_trade(
     start: str = "2026-10-01",
     end: str = "2026-11-01",
     volume_mw: str = "10",
+    product: str = "Oct-26 Base",
 ) -> Trade:
     return Trade(
         trade_id=trade_id,
@@ -52,6 +53,7 @@ def make_trade(
         load_profile=load_profile,
         delivery=delivery(start, end),
         volume_mw=Decimal(volume_mw),
+        product=product,
     )
 
 
