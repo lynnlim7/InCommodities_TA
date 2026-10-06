@@ -11,7 +11,7 @@
 
 .PHONY: help setup run test lint typecheck check
 
-PYTHON_PATH := PYTHONPATH=src
+PYTHON_PATH := src
 DASHBOARD := src/app/dashboard/app.py
 
 help: ## Show available commands.
