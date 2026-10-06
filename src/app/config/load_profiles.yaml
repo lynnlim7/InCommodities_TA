@@ -1,0 +1,14 @@
+load_profiles:
+  Base: 
+    type: continuous # 24 hours everyday
+
+  Peak: 
+    type: hourly_window # 12 hours a weekday
+    start_hour : 8 
+    end_hour : 20
+    weekdays: 
+      - Monday
+      - Tuesday
+      - Wednesday
+      - Thursday
+      - Friday
