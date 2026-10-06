@@ -12,7 +12,20 @@ The calculation core is intentionally independent of CSV parsing and Streamlit. 
 
 ## Quick start
 
-The project uses `uv` for dependency management and a `Makefile` as the developer/interviewer interface.
+The project uses `uv` for dependency management and a `Makefile` as the developer interface.
+
+### Run the application
+From the repository root:
+`make setup`
+`make run`
+
+`make setup` installs the locked dependencies from `uv.lock` and `make run` starts the Streamlit dashboard.
+
+### Verify the implementation 
+Run the complete test suite with: 
+`make check`
+
+### Available commands
 
 | Command | Purpose |
 |---|---|
