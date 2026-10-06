@@ -1,14 +1,12 @@
-"""Application composition: one load, one calculation, one refresh timestamp.
+"""
+Build immutable data snapshot consumed by the dashboard. 
 
-This is the only place the dashboard assembles the pipeline:
+Snapshot represents one consistent application state: 
 
-    configuration + trades.csv -> TradeBook -> reporting periods ->
-    calculate_positions() -> Position[]
+    configuration + trades -> reporting periods -> positions
 
-It computes all three horizons once per data load and captures the refresh
-time at that boundary, so every table on the page describes the same snapshot.
-No Streamlit import: the composition stays testable and the caching decision
-belongs to the renderer.
+All positions are calculated once when the snapshot is created.
+Rendering performs lookups and never recalculates position data. 
 """
 
 from __future__ import annotations
@@ -46,17 +44,15 @@ from app.dashboard.format import (
 from app.infrastructure.csv_repository import DEFAULT_TRADES_CSV, CsvTradeRepository
 
 JST = ZoneInfo("Asia/Tokyo")
-
-# Fixed reporting date for this MVP. The business as-of date is an input, not
-# something read from the machine clock, so a run is reproducible.
 AS_OF = date(2026, 10, 1)
 
 LabelFormatter = Callable[[DeliveryPeriod], str]
+PositionKey = tuple[str, str, ReportingPeriod]
 
 
 @dataclass(frozen=True, slots=True)
 class PositionView:
-    """One reporting horizon of an area/profile position table."""
+    """Reporting periods and presentation metadata for one horizon."""
 
     title: str
     periods: tuple[ReportingPeriod, ...]
@@ -65,7 +61,7 @@ class PositionView:
 
 @dataclass(frozen=True, slots=True)
 class Snapshot:
-    """Everything the page renders, from one load of one trade book."""
+    """Immutable application state produced from one trade book load."""
 
     as_of: date
     refreshed_at: datetime
@@ -75,12 +71,11 @@ class Snapshot:
     trade_types: tuple[str, ...]
     views: tuple[PositionView, ...]
     positions: tuple[Position, ...]
-    # Built once at load time so rendering a row is a lookup, never a
-    # recalculation.
-    position_index: dict[tuple[str, str, ReportingPeriod], Decimal]
+    position_index: dict[PositionKey, Decimal]
 
+    @property
     def profile_names(self) -> tuple[str, ...]:
-        """Configured load profiles, in configuration order."""
+
         return tuple(self.profiles.profiles)
 
     def net_position_mw(
@@ -90,7 +85,7 @@ class Snapshot:
         load_profile: str,
         period: ReportingPeriod,
     ) -> Decimal:
-        """Look up one already-calculated position. Never recalculates."""
+        """Return calculated net position."""
         return self.position_index[(area, load_profile, period)]
 
     def contributions(
@@ -100,7 +95,7 @@ class Snapshot:
         load_profile: str,
         period: ReportingPeriod,
     ) -> tuple[TradeContribution, ...]:
-        """Trades that produced one position, per the engine's own rule."""
+        """Return trades for reported position."""
         return contributing_trades(
             trade_book=self.trade_book,
             area=area,
@@ -114,19 +109,45 @@ def load_snapshot(
     as_of: date = AS_OF,
     trades_csv: Path = DEFAULT_TRADES_CSV,
 ) -> Snapshot:
-    """Load configuration and trades, then calculate every reported view once."""
-
+    """Load application inputs and calculate one consistent position snapshot."""
     areas_config = load_yaml(AREAS_YAML, AreasConfig)
     trade_types_config = load_yaml(TRADE_TYPES_YAML, TradeTypesConfig)
-    profiles = build_profile_registry(load_yaml(LOAD_PROFILES_YAML, LoadProfilesConfig))
-
+    profiles = _load_profiles()
     trade_book = CsvTradeRepository(path=trades_csv).load()
 
-    # The refresh time belongs to the data load, not to rendering: it is
-    # stamped once here so every table on the page reports the same snapshot.
-    refreshed_at = datetime.now(UTC).astimezone(JST)
+    views = _build_views(as_of)
+    periods = _reporting_periods(views)
+    areas = tuple(sorted(areas_config.areas))
 
-    views = (
+    positions = calculate_positions(
+        trade_book=trade_book,
+        periods=periods,
+        profiles=profiles,
+        supported_areas=frozenset(areas),
+    )
+
+    return Snapshot(
+        as_of=as_of,
+        refreshed_at=datetime.now(UTC).astimezone(JST),
+        trade_book=trade_book,
+        profiles=profiles,
+        areas=areas,
+        trade_types=tuple(trade_types_config.trade_types),
+        views=views,
+        positions=positions,
+        position_index=_index_positions(positions),
+    )
+
+
+def _load_profiles() -> ProfileRegistry:
+    """Load and build the configured load-profile registry."""
+    config = load_yaml(LOAD_PROFILES_YAML, LoadProfilesConfig)
+    return build_profile_registry(config)
+
+
+def _build_views(as_of: date) -> tuple[PositionView, ...]:
+    """Build the reporting horizons shown by the dashboard."""
+    return (
         PositionView(
             title="Next 7 days",
             periods=daily_periods(as_of=as_of, count=7),
@@ -144,30 +165,27 @@ def load_snapshot(
         ),
     )
 
-    areas = frozenset(areas_config.areas)
 
-    positions = calculate_positions(
-        trade_book=trade_book,
-        periods=tuple(period for view in views for period in view.periods),
-        profiles=profiles,
-        supported_areas=areas,
+def _reporting_periods(
+    views: tuple[PositionView, ...],
+) -> tuple[ReportingPeriod, ...]:
+    """Flatten all reporting horizons into calculation periods."""
+    return tuple(
+        period
+        for view in views
+        for period in view.periods
     )
 
-    return Snapshot(
-        as_of=as_of,
-        refreshed_at=refreshed_at,
-        trade_book=trade_book,
-        profiles=profiles,
-        areas=tuple(sorted(areas)),
-        trade_types=tuple(trade_types_config.trade_types),
-        views=views,
-        positions=positions,
-        position_index={
-            (
-                position.area,
-                position.load_profile,
-                position.period,
-            ): position.net_position_mw
-            for position in positions
-        },
-    )
+
+def _index_positions(
+    positions: tuple[Position, ...],
+) -> dict[PositionKey, Decimal]:
+    """Index calculated positions for constant-time dashboard lookup."""
+    return {
+        (
+            position.area,
+            position.load_profile,
+            position.period,
+        ): position.net_position_mw
+        for position in positions
+    }

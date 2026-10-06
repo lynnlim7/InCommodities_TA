@@ -11,7 +11,7 @@
 
 .PHONY: help setup run test lint typecheck check
 
-PYTHON_PATH := PYTHONPATH=src
+PYTHON_PATH := src
 DASHBOARD := src/app/dashboard/app.py
 
 help: ## Show available commands.
@@ -35,7 +35,7 @@ run: ## Start the Streamlit dashboard.
 	PYTHONPATH=$(PYTHON_PATH) uv run streamlit run $(DASHBOARD)
 
 test: ## Run the full pytest suite.
-	PYTHONPATH=$(PYTHON_PATH)uv run pytest
+	PYTHONPATH=$(PYTHON_PATH) uv run pytest
 
 lint: ## Run Ruff checks.
 	PYTHONPATH=$(PYTHON_PATH) uv run ruff check src tests
