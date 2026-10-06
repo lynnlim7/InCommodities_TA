@@ -303,32 +303,5 @@ The following are outside the current brief and are intentionally not inferred:
 
 These would require explicit business or operational requirements rather than assumptions in the position engine.
 
-## Project structure
-
-```text
-src/app/
-├── config/
-│   ├── areas.yaml
-│   ├── trade_types.yaml
-│   ├── load_profiles.yaml
-│   ├── schema.py
-│   ├── loader.py
-│   └── profiles.py
-├── core/
-│   ├── calculations.py
-│   ├── errors.py
-│   ├── models.py
-│   ├── periods.py
-│   └── profiles.py
-├── infrastructure/
-│   ├── csv_repository.py
-│   ├── schemas.py
-│   └── errors.py
-├── data/
-│   └── trades.csv
-├── dashboard/
-│   └── app.py
-└── logging_config.py
-```
 
 
