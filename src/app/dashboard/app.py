@@ -18,13 +18,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from decimal import Decimal
+from html import escape
 
 import streamlit as st
 import yaml
 from pydantic import ValidationError
 
 from app.core.errors import PositionError
-from app.core.models import ReportingPeriod
+from app.core.models import ExcludedTrade, ReportingPeriod
 from app.dashboard.format import (
     PositionState,
     format_energy,
@@ -33,9 +34,11 @@ from app.dashboard.format import (
 )
 from app.dashboard.snapshot import PositionView, Snapshot, load_snapshot
 from app.infrastructure.csv_repository import DEFAULT_TRADES_CSV
-from app.infrastructure.errors import TradeBookValidationError, TradeSourceError
+from app.infrastructure.errors import TradeSourceError
 
 PAGE_TITLE = "Power Position"
+
+WARNING_SIGN = "\u26a0"
 
 # Areas are shown side by side so the book is read across rather than by
 # scrolling. Past this many, a position table gets too narrow to stay legible,
@@ -139,6 +142,24 @@ STYLES = """
   tr.pp-long  td { background: rgba(38, 125, 85, .13); }
   tr.pp-short td { background: rgba(165, 58, 58, .13); }
 
+  tr.pp-incomplete td {
+      background-image: repeating-linear-gradient(
+          -45deg, rgba(196, 140, 30, .16) 0 6px, transparent 6px 12px);
+  }
+
+  .pp-flag {
+      margin-left: .5rem;
+      font-size: .72rem;
+      font-weight: 600;
+      color: rgb(176, 110, 10);
+  }
+
+  .pp-recon {
+      font-size: .85rem;
+      opacity: .8;
+      margin: -1rem 0 1rem;
+  }
+
   table.pp-table th.pp-sub, table.pp-table td.pp-sub {
       font-weight: 400;
       opacity: .7;
@@ -188,16 +209,12 @@ STYLES = """
 
 ERROR_HINTS: tuple[tuple[type[Exception], str], ...] = (
     (
-        TradeBookValidationError, 
-        "The trade book is not valid, so no position was produced.",
-    ),
-    (
         TradeSourceError, 
         "The trade book could not be read, so no position was produced.",
     ),
     (
         PositionError, 
-        "The trade book references unsupported reference data.",
+        "The position could not be calculated, so no position was produced.",
     ),
     (
         ValidationError, 
@@ -223,6 +240,7 @@ def load_cached_snapshot(trades_mtime: float) -> Snapshot:
 def render_dashboard(snapshot: Snapshot) -> None:
     """Render the complete position dashboard."""
     render_header(snapshot)
+    render_data_quality(snapshot)
     render_legend()
     render_areas(snapshot)
     render_footer(snapshot)
@@ -336,12 +354,29 @@ def _position_row(
     exposure = position.exposure
     state = position_state(exposure.net_mw)
 
+    excluded = snapshot.excluded_trades(area=area, period=period)
+    row_class = f"pp-{state} pp-incomplete" if excluded else f"pp-{state}"
+
     return (
-        f'<tr class="pp-{state}">'
-        f"<td>{view.format_label(period.delivery)}</td>"
+        f'<tr class="{row_class}">'
+        f"<td>{view.format_label(period.delivery)}{_incomplete_flag(excluded)}</td>"
         f'<td class="pp-num">{_position_cell(exposure.net_mw, state)}</td>'
         f'<td class="pp-num pp-sub">{format_energy(exposure.net_mwh)}</td>'
         "</tr>"
+    )
+
+
+def _incomplete_flag(excluded: tuple[ExcludedTrade, ...]) -> str:
+    """Mark a position a quarantined trade could have moved."""
+
+    if not excluded:
+        return ""
+
+    trade_ids = ", ".join(trade.trade_id or "unknown id" for trade in excluded)
+
+    return (
+        f'<span class="pp-flag" title="Quarantined: {escape(trade_ids)}">'
+        f"{WARNING_SIGN} incomplete</span>"
     )
 
 
@@ -449,6 +484,43 @@ def render_legend() -> None:
         ),
         unsafe_allow_html=True,
     )
+
+
+def render_data_quality(snapshot: Snapshot) -> None:
+    """Reconcile the book and surface every quarantined trade."""
+
+    result = snapshot.load_result
+    quarantined = len(result.quarantined)
+
+    st.markdown(
+        (
+            '<div class="pp-recon">'
+            f"Trades read: {result.rows_read:,} &nbsp;·&nbsp; "
+            f"counted: {len(result.trade_book):,} &nbsp;·&nbsp; "
+            f"quarantined: {quarantined:,}"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+    if not quarantined:
+        return
+
+    st.warning(
+        f"**{quarantined} of {result.rows_read:,} trades were quarantined** "
+        "and are not in the positions below. Positions they could have moved "
+        f"are marked {WARNING_SIGN} incomplete until the trade book is fixed."
+    )
+
+    with st.expander("Quarantined trades"):
+        st.code(
+            "\n".join(
+                str(error)
+                for row in result.quarantined
+                for error in row.errors
+            ),
+            language=None,
+        )
 
 
 def render_footer(snapshot: Snapshot) -> None:

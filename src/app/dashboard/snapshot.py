@@ -28,7 +28,9 @@ from app.config.schema import AreasConfig, LoadProfilesConfig, TradeTypesConfig
 from app.core.calculations import calculate_positions, contributing_trades
 from app.core.models import (
     DeliveryPeriod,
+    ExcludedTrade,
     Position,
+    ReferenceData,
     ReportingPeriod,
     TradeBook,
     TradeContribution,
@@ -40,7 +42,11 @@ from app.dashboard.format import (
     format_monthly_label,
     format_weekly_label,
 )
-from app.infrastructure.csv_repository import DEFAULT_TRADES_CSV, CsvTradeRepository
+from app.infrastructure.csv_repository import (
+    DEFAULT_TRADES_CSV,
+    CsvTradeRepository,
+    LoadResult,
+)
 
 JST = ZoneInfo("Asia/Tokyo")
 AS_OF = date(2026, 10, 1)
@@ -65,6 +71,7 @@ class Snapshot:
     as_of: date
     refreshed_at: datetime
     trade_book: TradeBook
+    load_result: LoadResult
     profiles: ProfileRegistry
     areas: tuple[str, ...]
     trade_types: tuple[str, ...]
@@ -85,6 +92,19 @@ class Snapshot:
         presentation layer.
         """
         return self.position_index[(area, period)]
+
+    def excluded_trades(
+        self,
+        *,
+        area: str,
+        period: ReportingPeriod,
+    ) -> tuple[ExcludedTrade, ...]:
+        """Quarantined trades that could have moved this position."""
+        return tuple(
+            trade
+            for trade in self.load_result.excluded_trades
+            if trade.may_affect(area, period.delivery)
+        )
 
     def contributions(
         self,
@@ -110,7 +130,15 @@ def load_snapshot(
     trade_types_config = load_yaml(TRADE_TYPES_YAML, TradeTypesConfig)
     profiles_config = load_yaml(LOAD_PROFILES_YAML, LoadProfilesConfig)
     profiles = build_profile_registry(profiles_config)
-    trade_book = CsvTradeRepository(path=trades_csv).load()
+
+    reference = ReferenceData(
+        areas=frozenset(areas_config.areas),
+        trade_types=frozenset(trade_types_config.trade_types),
+        load_profiles=frozenset(name for name, _ in profiles.items()),
+    )
+
+    load_result = CsvTradeRepository(path=trades_csv, reference=reference).load()
+    trade_book = load_result.trade_book
 
     views = _build_views(as_of)
     periods = _reporting_periods(views)
@@ -120,14 +148,15 @@ def load_snapshot(
         trade_book=trade_book,
         periods=periods,
         profiles=profiles,
-        supported_areas=frozenset(areas),
-        supported_trade_types=frozenset(trade_types_config.trade_types),
+        supported_areas=reference.areas,
+        supported_trade_types=reference.trade_types,
     )
 
     return Snapshot(
         as_of=as_of,
         refreshed_at=datetime.now(UTC).astimezone(JST),
         trade_book=trade_book,
+        load_result=load_result,
         profiles=profiles,
         areas=areas,
         trade_types=tuple(trade_types_config.trade_types),
