@@ -6,9 +6,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from enum import StrEnum
+
+ZERO = Decimal("0")
 
 
 class BuySell(StrEnum):
@@ -56,7 +58,21 @@ class DeliveryPeriod:
             return None
 
         return DeliveryPeriod(start=start, end=end)
-    
+
+    def contains(self, other: DeliveryPeriod) -> bool:
+        """Return whether ``other`` lies wholly inside this period."""
+        return self.start <= other.start and other.end <= self.end
+
+    @property
+    def days(self) -> int:
+        """Number of delivery days in the period."""
+        return (self.end - self.start).days
+
+    def each_day(self) -> Iterator[date]:
+        """Every delivery day in the period, in order."""
+        for offset in range(self.days):
+            yield self.start + timedelta(days=offset)
+
 @dataclass(frozen=True, slots=True)
 class Trade: 
     """Normalized trade used by the position engine."""
@@ -99,25 +115,72 @@ class ReportingPeriod:
     delivery: DeliveryPeriod
 
 @dataclass(frozen=True, slots=True)
-class Position: 
+class Exposure:
+    """Net MWh, average net MW and the min/max hour over a set of delivery hours."""
+
+    hours: int
+    net_mwh: Decimal
+    min_mw: Decimal
+    max_mw: Decimal
+
+    @property
+    def net_mw(self) -> Decimal:
+        """Average net MW over the hours, or zero when there are none."""
+        if self.hours == 0:
+            return ZERO
+
+        return self.net_mwh / self.hours
+
+
+NO_EXPOSURE = Exposure(hours=0, net_mwh=ZERO, min_mw=ZERO, max_mw=ZERO)
+
+
+@dataclass(frozen=True, slots=True)
+class BlockPosition:
+    """Exposure over the hours one reporting block covers, e.g. Peak."""
+
+    name: str
+    exposure: Exposure
+
+
+@dataclass(frozen=True, slots=True)
+class Position:
     """Net position for respective area and reporting period."""
 
     area: str
-    load_profile:str
     period: ReportingPeriod
-    net_position_mw: Decimal
+    exposure: Exposure
+    blocks: tuple[BlockPosition, ...] = ()
+
+    @property
+    def net_position_mw(self) -> Decimal:
+        """Average net MW over every hour of the period."""
+        return self.exposure.net_mw
+
+    @property
+    def net_position_mwh(self) -> Decimal:
+        """Net MWh delivered into the period."""
+        return self.exposure.net_mwh
+
+    def block(self, name: str) -> Exposure:
+        """Return the exposure for one reporting block by name."""
+        for block in self.blocks:
+            if block.name == name:
+                return block.exposure
+
+        raise KeyError(name)
 
 
 @dataclass(frozen=True, slots=True)
 class TradeContribution:
-    """One trade's applicable delivery inside a reporting period.
-
-    Explains an aggregated Position: the contractual MW alone cannot be
-    summed across trades covering different parts of a period, so the hours
-    that weighted it are reported alongside the trade.
-    """
+    """One trade's applicable delivery inside a reporting period."""
 
     trade: Trade
     applicable_hours: Decimal
+
+    @property
+    def energy_mwh(self) -> Decimal:
+        """Signed energy this trade delivers into the period."""
+        return self.trade.volume_mw_direction * self.applicable_hours
 
 

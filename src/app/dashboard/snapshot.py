@@ -14,7 +14,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -47,7 +46,7 @@ JST = ZoneInfo("Asia/Tokyo")
 AS_OF = date(2026, 10, 1)
 
 LabelFormatter = Callable[[DeliveryPeriod], str]
-PositionKey = tuple[str, str, ReportingPeriod]
+PositionKey = tuple[str, ReportingPeriod]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,35 +70,32 @@ class Snapshot:
     trade_types: tuple[str, ...]
     views: tuple[PositionView, ...]
     positions: tuple[Position, ...]
-    position_index: dict[PositionKey, Decimal]
+    position_index: dict[PositionKey, Position]
 
-    @property
-    def profile_names(self) -> tuple[str, ...]:
-
-        return tuple(self.profiles.profiles)
-
-    def net_position_mw(
+    def position(
         self,
         *,
         area: str,
-        load_profile: str,
         period: ReportingPeriod,
-    ) -> Decimal:
-        """Return calculated net position."""
-        return self.position_index[(area, load_profile, period)]
+    ) -> Position:
+        """Return the calculated position for one reporting cell.
+
+        The whole position is returned rather than a single number, so MW and
+        MWh are read from one calculated row and cannot drift apart in the
+        presentation layer.
+        """
+        return self.position_index[(area, period)]
 
     def contributions(
         self,
         *,
         area: str,
-        load_profile: str,
         period: ReportingPeriod,
     ) -> tuple[TradeContribution, ...]:
         """Return trades for reported position."""
         return contributing_trades(
             trade_book=self.trade_book,
             area=area,
-            load_profile=load_profile,
             period=period,
             profiles=self.profiles,
         )
@@ -112,7 +108,8 @@ def load_snapshot(
     """Load application inputs and calculate one consistent position snapshot."""
     areas_config = load_yaml(AREAS_YAML, AreasConfig)
     trade_types_config = load_yaml(TRADE_TYPES_YAML, TradeTypesConfig)
-    profiles = _load_profiles()
+    profiles_config = load_yaml(LOAD_PROFILES_YAML, LoadProfilesConfig)
+    profiles = build_profile_registry(profiles_config)
     trade_book = CsvTradeRepository(path=trades_csv).load()
 
     views = _build_views(as_of)
@@ -124,6 +121,7 @@ def load_snapshot(
         periods=periods,
         profiles=profiles,
         supported_areas=frozenset(areas),
+        supported_trade_types=frozenset(trade_types_config.trade_types),
     )
 
     return Snapshot(
@@ -137,12 +135,6 @@ def load_snapshot(
         positions=positions,
         position_index=_index_positions(positions),
     )
-
-
-def _load_profiles() -> ProfileRegistry:
-    """Load and build the configured load-profile registry."""
-    config = load_yaml(LOAD_PROFILES_YAML, LoadProfilesConfig)
-    return build_profile_registry(config)
 
 
 def _build_views(as_of: date) -> tuple[PositionView, ...]:
@@ -179,13 +171,12 @@ def _reporting_periods(
 
 def _index_positions(
     positions: tuple[Position, ...],
-) -> dict[PositionKey, Decimal]:
+) -> dict[PositionKey, Position]:
     """Index calculated positions for constant-time dashboard lookup."""
     return {
         (
             position.area,
-            position.load_profile,
             position.period,
-        ): position.net_position_mw
+        ): position
         for position in positions
     }

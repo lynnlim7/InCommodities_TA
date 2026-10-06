@@ -4,20 +4,22 @@ Calculate net power positions.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from decimal import Decimal
 
-from app.core.errors import UnsupportedAreaError
+from app.core.curve import NetCurve, build_curves
 from app.core.models import (
+    ZERO,
+    BlockPosition,
+    DeliveryPeriod,
     Position,
     ReportingPeriod,
     Trade,
     TradeBook,
     TradeContribution,
 )
-from app.core.profiles import LoadProfile, ProfileRegistry
+from app.core.profiles import ContinuousProfile, LoadProfile, ProfileRegistry
 
-ZERO = Decimal("0")
+EVERY_HOUR = ContinuousProfile()
 
 
 def calculate_positions(
@@ -25,55 +27,63 @@ def calculate_positions(
     periods: tuple[ReportingPeriod, ...],
     profiles: ProfileRegistry,
     supported_areas: frozenset[str],
+    supported_trade_types: frozenset[str],
+    blocks: tuple[str, ...] = (),
 ) -> tuple[Position, ...]:
-    """
-    Calculate time-weighted net MW positions.
+    """Calculate net MWh and net MW positions, read off each area's hourly curve."""
 
-    Positions are aggregated by area, load profile, and reporting period.
-    """
+    if not periods:
+        return ()
 
-    weighted_totals: dict[
-        tuple[str, str, ReportingPeriod],
-        Decimal,
-    ] = defaultdict(lambda: ZERO)
-
-    for trade in trade_book:
-        if trade.area not in supported_areas:
-            raise UnsupportedAreaError(
-                f"Unsupported area: {trade.area} "
-                f"(trade {trade.trade_id})"
-            )
-
-        profile = profiles.get(
-            trade.load_profile
-        )
-
-        for period in periods:
-            delivery_hours = _applicable_hours(
-                trade,
-                period,
-                profile,
-            )
-
-            if delivery_hours is None:
-                continue
-
-            key = (
-                trade.area,
-                trade.load_profile,
-                period,
-            )
-
-            weighted_totals[key] += (
-                trade.volume_mw_direction
-                * delivery_hours
-            )
-
-    return _build_positions(
-        weighted_totals=weighted_totals,
-        periods=periods,
+    curves = build_curves(
+        trade_book=trade_book,
+        horizon=_horizon(periods),
         profiles=profiles,
         supported_areas=supported_areas,
+        supported_trade_types=supported_trade_types,
+    )
+
+    block_profiles = tuple(
+        (name, profiles.get(name))
+        for name in blocks
+    )
+
+    return tuple(
+        _position(curve, period, block_profiles)
+        for curve in curves.values()
+        for period in periods
+    )
+
+
+def _position(
+    curve: NetCurve,
+    period: ReportingPeriod,
+    block_profiles: tuple[tuple[str, LoadProfile], ...],
+) -> Position:
+    """Read one area's position for one period off its curve."""
+
+    return Position(
+        area=curve.area,
+        period=period,
+        exposure=curve.exposure(period.delivery, EVERY_HOUR),
+        blocks=tuple(
+            BlockPosition(
+                name=name,
+                exposure=curve.exposure(period.delivery, profile),
+            )
+            for name, profile in block_profiles
+        ),
+    )
+
+
+def _horizon(
+    periods: tuple[ReportingPeriod, ...],
+) -> DeliveryPeriod:
+    """The smallest interval covering every reporting period."""
+
+    return DeliveryPeriod(
+        start=min(period.delivery.start for period in periods),
+        end=max(period.delivery.end for period in periods),
     )
 
 
@@ -82,13 +92,7 @@ def _applicable_hours(
     period: ReportingPeriod,
     profile: LoadProfile,
 ) -> Decimal | None:
-    """Hours this trade delivers inside the period, or None if it contributes nothing.
-
-    A trade contributes when its delivery interval overlaps the reporting
-    period and the load profile actually delivers hours inside that overlap.
-    Both the aggregation and the drill-down read the rule from here, so a
-    position can never show a contributing trade the engine did not use.
-    """
+    """Hours this trade delivers inside the period, or None if it contributes nothing."""
 
     overlap = trade.delivery.intersection(
         period.delivery
@@ -110,13 +114,10 @@ def _applicable_hours(
 def contributing_trades(
     trade_book: TradeBook,
     area: str,
-    load_profile: str,
     period: ReportingPeriod,
     profiles: ProfileRegistry,
 ) -> tuple[TradeContribution, ...]:
     """Return the trades that produced one aggregated position, in book order."""
-
-    profile = profiles.get(load_profile)
 
     return tuple(
         TradeContribution(
@@ -125,61 +126,12 @@ def contributing_trades(
         )
         for trade in trade_book
         if trade.area == area
-        and trade.load_profile == load_profile
         and (
             delivery_hours := _applicable_hours(
                 trade,
                 period,
-                profile,
+                profiles.get(trade.load_profile),
             )
         )
         is not None
     )
-
-
-def _build_positions(
-    weighted_totals: dict[
-        tuple[str, str, ReportingPeriod],
-        Decimal,
-    ],
-    periods: tuple[ReportingPeriod, ...],
-    profiles: ProfileRegistry,
-    supported_areas: frozenset[str],
-) -> tuple[Position, ...]:
-    """Build deterministic position rows including zero positions."""
-
-    positions: list[Position] = []
-
-    for area in sorted(supported_areas):
-        for profile_name, profile in profiles.items():
-            for period in periods:
-
-                period_hours = profile.delivery_hours(
-                    period.delivery
-                )
-
-                weighted_total = weighted_totals.get(
-                    (
-                        area,
-                        profile_name,
-                        period,
-                    ),
-                    ZERO,
-                )
-
-                net_position_mw = (
-                    weighted_total / period_hours
-                    if period_hours > ZERO
-                    else ZERO
-                )
-
-                positions.append(
-                    Position(
-                        area=area,
-                        load_profile=profile_name,
-                        period=period,
-                        net_position_mw=net_position_mw,
-                    )
-                )
-
-    return tuple(positions)

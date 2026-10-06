@@ -65,20 +65,18 @@ def position_for(
     positions: Iterable[Position],
     *,
     area: str,
-    load_profile: str,
     period: ReportingPeriod,
 ) -> Position:
     """Return the single position row for one aggregation key.
 
-    The engine emits a row for every area x profile x period combination, so a
-    test asserting on one business scenario has to select its row. Unpacking a
+    The engine emits a row for every area x period combination, so a test
+    asserting on one business scenario has to select its row. Unpacking a
     one-element list also asserts the engine never emits a duplicate key.
     """
     [found] = [
         position
         for position in positions
         if position.area == area
-        and position.load_profile == load_profile
         and position.period == period
     ]
     return found
