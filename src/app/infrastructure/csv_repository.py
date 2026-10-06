@@ -11,12 +11,9 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from app.core.models import DeliveryPeriod, Trade, TradeBook
 from app.infrastructure.schemas import CSV_HEADERS, CsvTradeRow
-from app.infrastructure.errors import (
-    RowError,
-    TradeBookValidationError,
-    TradeSourceError,
-)
+from app.infrastructure.errors import RowError, TradeBookValidationError, TradeSourceError
 
 DEFAULT_TRADES_CSV = (
     Path(__file__).resolve().parent.parent / "data" / "trades.csv"
@@ -28,9 +25,19 @@ class CsvTradeRepository:
 
     path: Path
 
-    def load(self) -> list[CsvTradeRow]:
+    def load(self) -> TradeBook:
+        rows = self._load_rows()
+
+        return TradeBook(
+            trades=tuple(
+                _to_trade(row)
+                for row in rows
+            )
+        )
+
+    def _load_rows(self) -> list[CsvTradeRow]:
         """Return validated trade rows or raise all validation errors."""
-        trades: list[CsvTradeRow] = []
+        rows: list[CsvTradeRow] = []
         errors: list[RowError] = []
         seen_ids: dict[str, int] = {} # prevent dupes
         rows_read = 0
@@ -69,8 +76,8 @@ class CsvTradeRepository:
                             seen_ids[trade_id] = line_number
 
                     try: 
-                        trade = CsvTradeRow.model_validate(row)
-                        trades.append(trade)
+                        row_model = CsvTradeRow.model_validate(row)
+                        rows.append(row_model)
 
                     except ValidationError as exc:
                         errors.extend(
@@ -82,7 +89,7 @@ class CsvTradeRepository:
                         )
         except FileNotFoundError:
             raise TradeSourceError(
-                "Input file not found: {self.path}"
+                f"Input file not found: {self.path}"
             ) from None 
 
         except IsADirectoryError:
@@ -106,35 +113,54 @@ class CsvTradeRepository:
                 rows_read=rows_read,
             )
 
-        return trades
+        return rows
 
-    def _validate_headers(
-            fieldnames: Sequence[str] | None,
-            source: Path, 
-    ) -> None:
-        """Validate CSV columns before processing rows."""
 
-        if not fieldnames:
-            raise TradeSourceError(
-                f"{source} has no header row"
-            )
 
-        actual = [field.strip() for field in fieldnames]
+def _to_trade(
+    row:CsvTradeRow,
+) -> Trade:
+    """Convert validated CSV row into domain trade."""
+    return Trade(
+        trade_id=row.trade_id,
+        area=row.area,
+        trade_type=row.trade_type,
+        buy_sell=row.buy_sell,
+        load_profile=row.load_profile,
+        delivery=DeliveryPeriod(
+            start=row.start_date,
+            end=row.end_date,
+        ),
+        volume_mw=row.volume_mw,
+    )
 
-        if len(actual) != len(set(actual)):
-            raise TradeSourceError(
-                f"{source} has duplicate columns"
-            )
+def _validate_headers(
+        fieldnames: Sequence[str] | None,
+        source: Path, 
+) -> None:
+    """Validate CSV columns before processing rows."""
 
-        missing = set(CSV_HEADERS) - set(actual)
-        unexpected = set(actual) - set(CSV_HEADERS)
+    if not fieldnames:
+        raise TradeSourceError(
+            f"{source} has no header row"
+        )
 
-        if missing or unexpected:
-            raise TradeSourceError(
-                f"{source} has invalid columns."
-                f"Missing: {sorted(missing)}."
-                f"Unexpected: {sorted(unexpected)}"
-            )
+    actual = [field.strip() for field in fieldnames]
+
+    if len(actual) != len(set(actual)):
+        raise TradeSourceError(
+            f"{source} has duplicate columns"
+        )
+
+    missing = set(CSV_HEADERS) - set(actual)
+    unexpected = set(actual) - set(CSV_HEADERS)
+
+    if missing or unexpected:
+        raise TradeSourceError(
+            f"{source} has invalid columns. "
+            f"Missing: {sorted(missing)}. "
+            f"Unexpected: {sorted(unexpected)}"
+        )
 
 def _validation_errors(
         exc: ValidationError, 

@@ -3,7 +3,7 @@ Errors raised by power position domain.
 """
 
 class PositionError(Exception):
-    """"Base error for position calculation failures."""
+    """Base error for position calculation failures."""
 
 class UnsupportedAreaError(PositionError):
     """Trade references an unsupported area."""

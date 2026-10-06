@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
+from typing import Protocol
 
 from app.core.errors import (
     InvalidProfileError,
@@ -15,6 +16,7 @@ from app.core.errors import (
 from app.core.models import DeliveryPeriod
 
 class LoadProfile(Protocol):
+    """How many hours a load profile actually delivers inside an interval."""
 
     def delivery_hours(
             self,
