@@ -1,285 +1,334 @@
 # Power Position Tool
 
-A position tool for the trading desk of a Japanese electricity retailer. It reads the
-trade book and shows how many MW and MWh the desk is long or short over the coming days,
-weeks, and months, broken down by delivery area.
+A lightweight position-reporting tool for the trading desk of a Japanese electricity retailer. It reads a trade book, validates it as a complete snapshot, and calculates the desk's forward net power position by delivery area and load profile.
 
-```bash
-uv sync
-uv run power-position --as-of 2026-10-01
-```
+The tool provides three forward-looking views from a fixed reporting date:
 
-## Overview
+- next 7 days — one position per day;
+- next 4 weeks — one position per calendar-week bucket;
+- next 12 months — one position per calendar-month bucket.
 
-```
-POWER POSITION   as of 2026-10-01 (Asia/Tokyo)
-Source src/app/data/trades.csv   Trades 12   Areas Tokyo, Kansai
-Sign Buy = positive = long, Sell = negative = short   Days 00:00-00:00 JST, end date exclusive
+The calculation core is intentionally independent of CSV parsing and Streamlit. External data is validated and normalized before it enters the domain, while configurable reference data and load-profile parameters are kept in YAML.
 
-Where the book stands
-┏━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Area   ┃        Next 7 days ┃        Next 4 weeks ┃       Next 12 months ┃
-┡━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━┩
-│ Tokyo  │ +5,040 MWh  LONG ▲ │ +19,296 MWh  LONG ▲ │ +187,296 MWh  LONG ▲ │
-│ Kansai │ +1,584 MWh  LONG ▲ │  +6,192 MWh  LONG ▲ │  +25,488 MWh  LONG ▲ │
-└────────┴────────────────────┴─────────────────────┴──────────────────────┘
-Changes of direction
-  Kansai turns FLAT from LONG at 2027-01 (monthly)
-```
+## Quick start
 
-The report is built to be read in under a minute. The headline answers the two questions a
-trader asks first — where am I long or short over each horizon, and does any position
-change direction inside one — and the three detail tables follow for the row worth
-checking. `--layout matrix` pivots areas into columns for a desk trading all nine areas;
-`--format json` emits the machine contract.
+The project uses `uv` for dependency management and a `Makefile` as the developer/interviewer interface.
 
-## Assumptions
-
-The brief deliberately leaves several definitions open. These are the choices made, and
-they are printed on every run as well as recorded here.
-
-| # | Assumption |
+| Command | Purpose |
 |---|---|
-| 1 | **Sign convention.** Buy is positive and long; Sell is negative and short. |
-| 2 | **Day boundaries** fall at 00:00 JST. Japan has no daylight saving, so a delivery day is always 24 hours and no timezone arithmetic is performed. |
-| 3 | **Delivery interval** is `[start_date, end_date)` — start inclusive, end exclusive, as the CSV documents. |
-| 4 | **Daily view** includes the as-of day, because the tool is read each morning and the trader needs today's position in order to hedge it. |
-| 5 | **Weeks run Monday to Sunday.** The current week is clipped at the as-of date, so already-delivered days are excluded; such rows are marked `*`. |
-| 6 | **Monthly view** is the current month plus the following 11, with the current month clipped at the as-of date. For 1 October the month is already complete, so it is not marked partial. |
-| 7 | **Net MWh is the canonical quantity.** It is additive across periods and is what the LONG/SHORT/FLAT label is derived from. |
-| 8 | **Average MW** = Net MWh ÷ the period's wall-clock hours. It is a *time-weighted average*, not a constant exposure, which is why the column is never labelled just "MW". |
-| 9 | **Every supplied row is an active trade.** The CSV has no status or version field, so no amendment or cancellation semantics are inferred. |
-| 10 | **Product names are descriptive and never parsed.** Delivery comes only from `start_date`, `end_date`, and `load_profile`. A row labelled `Cal-30 Peak` with Base dates is treated as Base. |
-| 11 | **Price is validated and retained but unused** in the physical position. |
-| 12 | **Invalid input fails the run.** No partial position is produced. A partial book still looks like a complete position, and a position quietly missing trades can imply the wrong hedge. |
-| 13 | **Zero-exposure rows are shown** for every area observed in the book, so FLAT is distinguishable from missing output. |
+| `make setup` | Install the locked project dependencies. |
+| `make run` | Start the Streamlit dashboard. |
+| `make test` | Run the full pytest suite. |
+| `make lint` | Run Ruff checks. |
+| `make typecheck` | Run mypy. |
+| `make check` | Run tests, linting, and type checking. |
+| `make help` | Show the available targets. |
 
-Two further choices worth stating: a volume of zero or less is rejected rather than treated
-as a short (direction already carries the sign), and a price of zero or less is rejected as
-invalid.
+The assessment reporting date is **1 October 2026**. The application should use this date as the default `as_of` date for the required views rather than deriving business results implicitly from the machine clock.
+
+## Business interpretation
+
+The tool answers the operational question: **for each configured area and load profile, how long or short is the desk over each upcoming reporting period?**
+
+A positive position is long and a negative position is short. Buy trades contribute positively and Sell trades negatively.
+
+Trade volumes are supplied in MW, so positions are reported in **MW**. For reporting buckets longer than the exact delivery of a trade, the result is a time-weighted average signed MW over the delivery hours applicable to that load profile:
+
+```text
+                 Σ(signed trade MW × applicable overlap hours)
+Net position =  ───────────────────────────────────────────────
+                    profile hours in the reporting period
+```
+
+MW-hours are therefore used implicitly as the weighting numerator, but the reported position remains MW. The tool does not present cumulative MWh as the desk position.
+
+## Assumptions and business rules
+
+| # | Rule / assumption |
+|---|---|
+| 1 | **Sign convention.** Buy is positive/long; Sell is negative/short. |
+| 2 | **Timezone.** All delivery dates, reporting boundaries, and profile hours are interpreted in Japan Standard Time (JST / `Asia/Tokyo`). |
+| 3 | **Date representation.** The supplied data is date-level and Japan has no daylight-saving time, so the core uses `date` rather than timezone-aware `datetime`. |
+| 4 | **Delivery intervals are half-open.** `[start_date, end_date)` includes the start date and excludes the end date. For example, an October trade represented as `2026-10-01` to `2026-11-01` delivers through 31 October. |
+| 5 | **Daily view.** The next 7 days start on the `as_of` date. |
+| 6 | **Weekly convention.** Weeks are Monday-Sunday JST calendar weeks. The first bucket is clipped to the `as_of` date so the view remains forward-looking; subsequent buckets are full Monday-Sunday weeks. |
+| 7 | **Monthly convention.** Months are calendar months. The first bucket is clipped to the `as_of` date when necessary; subsequent buckets are full calendar months. |
+| 8 | **Load profiles remain separate.** Base and Peak represent different delivery shapes and are not collapsed into one number. Positions are therefore keyed by area, load profile, and reporting period. |
+| 9 | **Base delivery.** A continuous/Base-style profile delivers 24 hours per applicable Japanese calendar day. |
+| 10 | **Peak delivery.** The current Peak configuration is 08:00-20:00 on configured Monday-Friday delivery days. The hourly-window behaviour itself supports any configured day of the week. |
+| 11 | **Product labels are descriptive.** The engine does not parse strings such as `Oct-26 Base` to derive delivery. Structured `start_date`, `end_date`, and `load_profile` fields are authoritative. |
+| 12 | **Every supplied row is treated as active.** No amendment, cancellation, or version semantics are inferred because the input does not provide them. |
+| 13 | **Price is input metadata, not a position driver.** It is validated at the CSV boundary but is not used to calculate physical MW exposure. |
+| 14 | **Invalid input fails the run.** The application does not calculate from a partial trade book because a plausible-looking position with missing exposure could lead to an incorrect hedge. |
+| 15 | **Configured reference data is authoritative.** A trade referencing an unsupported area or load profile fails rather than disappearing from the report. Trade types are also configuration/reference data and do not currently alter the position formula. |
+| 16 | **Zero positions are explicit.** The calculation builds deterministic rows for configured area/profile/period combinations so zero exposure can be distinguished from missing calculation output. |
+
+No Japanese public-holiday adjustment is inferred for Peak delivery because the supplied requirements do not define holiday treatment.
 
 ## Architecture
 
-Four layers, with the dependency arrow only ever pointing inward.
+The tool separates external representation, configurable variation, business behaviour, and presentation.
 
-```
- trades.csv ─▶ infrastructure/ ──┐                 ┌─▶ interfaces/console  (long | matrix)
-                                  │                 │─▶ interfaces/json_out (machine)
-            ┌─────────────────────▼──────────────┐  │
-            │  services/position_service.py      │──┤
-            │  build_views(repository, as_of)    │  │
-            └─────────────────────┬──────────────┘  │
-                                  │                 │
- ┌──────────── core/  no I/O, no clock, no framework ▼────────────────────┐
- │ interval · direction · position · profiles · trade                     │
- │ periods (reporting windows) · engine · results                         │
- └────────────────────────────────────────────────────────────────────────┘
+```text
+                         config/
+          ┌────────────────┼─────────────────┐
+          │                │                 │
+     areas.yaml      trade_types.yaml  load_profiles.yaml
+          │                │                 │
+          └────────── Pydantic schemas ──────┘
+                           │
+                           └──── profile configuration
+                                      │
+                                      ▼
+                                ProfileRegistry
+                                      │
+                                      │
+trades.csv                            │
+    │                                 │
+    ▼                                 │
+infrastructure/CsvTradeRepository     │
+    │                                 │
+    ├─ CSV/header validation          │
+    ├─ aggregate row errors           │
+    ├─ CsvTradeRow (Pydantic)         │
+    └─ normalize to domain Trade      │
+    │                                 │
+    ▼                                 │
+ TradeBook ───────────────────────────┤
+    │                                 │
+    └──────────────┐                  │
+                   ▼                  ▼
+              core/calculations.py
+                   │
+                   ├─ interval intersection
+                   ├─ profile-aware delivery hours
+                   ├─ signed MW weighting
+                   └─ deterministic aggregation
+                   │
+                   ▼
+             tuple[Position, ...]
+                   │
+                   ▼
+             dashboard/app.py
+                Streamlit
 ```
 
-| Layer | Responsibility |
+### Responsibilities
+
+| Module | Responsibility |
 |---|---|
-| `core/` | The domain and the calculation. Pure, deterministic, no dependencies outside itself. |
-| `infrastructure/` | Reading the trade book; reporting what could not be read. |
-| `services/` | What a run *is*: load a book, then calculate the views. |
-| `interfaces/` | The CLI and the two renderers. |
+| `core/models.py` | Stable domain concepts: trade direction, delivery periods, normalized trades, trade books, reporting periods, and positions. |
+| `core/profiles.py` | Load-profile behaviour such as continuous delivery and configured hourly windows. |
+| `core/periods.py` | Generates daily, weekly, and monthly forward reporting periods. |
+| `core/calculations.py` | Pure position aggregation over normalized trades and reporting periods. |
+| `config/schema.py` | Pydantic contracts for areas, trade types, and load-profile YAML. |
+| `config/loader.py` | Generic YAML loading and schema validation. |
+| `config/profiles.py` | Converts validated profile configuration into domain profile behaviour. |
+| `infrastructure/schemas.py` | External CSV row contract and parsing into typed values. |
+| `infrastructure/csv_repository.py` | Reads CSV, validates the complete book, and returns a normalized `TradeBook`. |
+| `infrastructure/errors.py` | Actionable source and row-validation errors. |
+| `dashboard/app.py` | Application composition and Streamlit presentation; it should not duplicate business calculations. |
 
-`tests/unit/test_architecture.py` enforces this rather than documenting it: it AST-parses
-every `core/` module and fails if one imports an outer layer, a parsing or presentation
-library, or reads the system clock.
+The dependency direction is intentionally simple: outer adapters/configuration may depend on the core, while the core does not depend on CSV, YAML, Pydantic, or Streamlit.
 
 ## Key design decisions
 
-### Decision 1 — one engine, O(n·m), written to be read
+### 1. Structured trade fields drive the calculation
 
-**Choice:** for each reporting period and each area, sum the signed MWh each trade delivers
-in that period. The whole engine is ~40 lines and maps line-for-line onto the specified
-formula `MWh = signedMW × coveredHours(trade, period)`.
+The engine uses normalized fields such as `area`, `buy_sell`, `load_profile`, `start_date`, `end_date`, and `volume_mw`. It does not infer business behaviour by parsing the human-readable `product` string.
 
-**Reason:** a reviewer can confirm it is correct by reading it. Work is proportional to
-trade/period intersections, never to delivery hours, so nothing is ever expanded to one row
-per hour.
+This keeps calculation behaviour stable if product naming conventions change and avoids maintaining two competing representations of delivery semantics.
 
-**Alternative:** collapse trades into constant-MW segments by accumulating `+MW` at each
-start and `−MW` at each end, then integrate each segment against each period — `O(n + b log
-b + s·m)`.
+### 2. CSV validation is an application boundary
 
-**Trade-off:** the segment approach is asymptotically better but introduces a
-breakpoint/running-sum concept every future reader must re-derive. Measured at 100,000
-trades across 9 areas the simple loop takes **~1.0 s** and scales linearly (8.9 / 9.2 /
-10.2 µs per trade at 10k / 50k / 100k), so the complexity buys nothing at the sizes the
-brief names. It is the documented next step if that ever stops being true.
+`CsvTradeRepository` owns the CSV-specific workflow:
 
-### Decision 2 — `Decimal` through the domain, rounding only at the edge
+```text
+CSV strings
+    → CsvTradeRow validation
+    → aggregate validation errors
+    → domain Trade
+    → TradeBook
+```
 
-**Choice:** parse volumes and prices to `Decimal` at the input boundary, aggregate in
-`Decimal`, keep results unrounded, and round only in `interfaces/format.py`.
+Pydantic is used for untrusted external data; the core receives typed domain objects rather than CSV/Pydantic models. Direction is parsed into the domain `BuySell` enum at this boundary so invalid values such as `B`, `buy`, or `Purchase` are reported with the rest of the row errors instead of failing later during calculation.
 
-**Reason:** covered hours are integral, so `signed_mw × hours` is exact and Net MWh is
-exact. An incorrect position can imply an incorrect hedge, so correctness outranks speed.
+The repository reports all row-validation problems in one pass and rejects the book if any exist.
 
-**Alternative:** `float64`, or a vectorised dataframe pipeline.
+### 3. Configuration describes variation; Python implements behaviour
 
-**Trade-off:** `Decimal` is roughly ten times slower than `float`, and this engine performs
-the arithmetic n×m times rather than over a reduced set. The measurement above shows the
-cost is affordable. `pandas` was removed from the dependencies for the same reason it was
-never needed: a dataframe in an engine signature would put a parsing library inside the
-core.
+YAML is used for reference data and parameters expected to vary:
 
-### Decision 3 — load profile as the one real abstraction
+- supported areas;
+- supported trade types;
+- available load profiles;
+- profile type;
+- profile hours and applicable days.
 
-**Choice:** a `LoadProfile` protocol with a single method, `covered_hours(interval)`.
-`BaseProfile` returns `days × 24`.
+Typed Python owns behaviour that should be explicit and tested:
 
-**Reason:** this is the only extension point the brief explicitly demands. A profile knows
-nothing about direction, netting, areas, or reporting windows, so adding Peak means adding
-one class and one registry entry — the netting and reporting arithmetic is untouched.
-`test_profiles.py` proves it by declaring a new profile *inside the test module* and running
-a full view through it.
+- Buy/Sell sign semantics;
+- half-open interval intersection;
+- reporting-period generation;
+- delivery-hour calculation;
+- time-weighted position arithmetic;
+- domain invariants.
 
-**Trade-off:** intervals carry `date` boundaries, not `datetime`, because every boundary in
-scope is 00:00 JST. An intraday as-of timestamp would widen this to `datetime` — a change
-confined to profiles and window generators.
+This avoids turning YAML into a business-rules programming language.
 
-### Decision 4 — area and trade type are data, not code
+### 4. Load profiles are the deliberate extension point
 
-**Choice:** area is a pure grouping dimension with no branch anywhere. `config.py` lists the
-nine areas for display order only; an unlisted area is still valid and still calculated, and
-sorts after the known ones. `trade_type` is validated metadata with no position effect.
+The position engine does not contain branches such as `if profile == "Peak"`. Instead it asks the configured profile behaviour for applicable delivery hours within an interval.
 
-**Reason:** a new area must not require a code change. Whether area names should be
-restricted to an authoritative list is an open question, so configuration raises it rather
-than code presuming it.
+Adding another profile that can be represented by an existing behaviour is configuration-only. A fundamentally different delivery shape requires a new typed profile implementation, while the central position aggregation remains unchanged.
 
-### Decision 5 — long format is the contract, matrix is the scanning aid
+### 5. Area and trade type are configured reference data
 
-**Choice:** the console defaults to one row per area and period, which is the specified
-column contract; `--layout matrix` pivots areas into columns. JSON is always long format.
+Areas and trade types are strings rather than hard-coded enums because the brief expects the supported universe to grow. YAML therefore defines what is currently supported without requiring changes to the core domain model.
 
-**Reason:** at nine areas the long view is 63 rows per table, which defeats the one-minute
-goal; the matrix is 7. But the matrix drops the written position label for width, so it
-carries a glyph legend and points at the views that carry the full contract.
+An unsupported area fails explicitly instead of being silently omitted. This is important because silently dropping a trade can produce a plausible but incorrect flat position.
+
+Trade type is currently validated/reference metadata. It is deliberately not part of the aggregation key because the current business requirement is the desk's net physical position, not a breakdown by source trade type. Future trade types with different source representations should normalize into the same domain `Trade` semantics where possible.
+
+### 6. Time-weighted MW rather than summing MW across time
+
+MW is a rate of power, not a cumulative quantity. A 10 MW trade covering half of a monthly bucket and a 5 MW trade covering the other half should not be reported as 15 MW for the month.
+
+The calculation therefore weights each signed MW exposure by its applicable delivery hours and divides by the profile hours in the reporting period.
+
+For example, for October Base:
+
+```text
+Buy 10 MW: 1 Oct → 15 Oct = 336 hours
+Buy  5 MW: 15 Oct → 1 Nov = 408 hours
+October Base hours             = 744 hours
+
+position = (10 × 336 + 5 × 408) / 744
+         ≈ 7.258 MW
+```
+
+The half-open interval convention means the two trades meet at 15 October without overlapping.
+
+### 7. Simple O(T × P) aggregation is intentional
+
+For each trade, the engine checks its overlap with each requested reporting period. With the required views there are only 23 periods (`7 + 4 + 12`), so 100,000 trades imply roughly 2.3 million trade/period overlap checks before the small amount of profile-hour arithmetic.
+
+This is preferable for the tool to expanding long-dated trades into hourly rows, which would increase memory use dramatically and obscure the business logic.
+
+A more sophisticated interval index, vectorized implementation, or pre-aggregation layer can replace the calculation implementation later if measured production requirements justify it. The domain and presentation contracts do not need to change first.
+
+### 8. `Decimal` is used for trade quantities
+
+CSV numeric values are parsed to `Decimal` and position arithmetic remains in `Decimal`. This avoids introducing binary floating-point artefacts into quantities used to report trading exposure.
+
+The trade-off is lower arithmetic throughput than native floats, which is acceptable for the current calculation size and keeps the implementation explicit.
+
+### 9. Streamlit is a thin presentation layer
+
+The dashboard is not another business-logic layer. Its role is to compose configuration, load the trade book, request the three reporting views, and present `Position` results in a form a trader can scan quickly.
+
+Keeping the calculation outside Streamlit makes the core independently testable and allows the presentation layer to be replaced without rewriting position logic.
 
 ## Error handling
 
-Failures are split by what the operator has to do about them.
+The application distinguishes source failures from invalid records.
 
-| Exit | Meaning |
+- `TradeSourceError` represents an unusable source, such as a missing file, directory path, unreadable encoding, or invalid CSV structure/header.
+- `RowError` represents one actionable row-level validation problem and records the CSV line, trade ID when available, field, value, and reason.
+- `TradeBookValidationError` aggregates row errors so the user can correct the book in one pass.
+- Domain reference errors such as `UnsupportedAreaError` and `UnsupportedProfileError` prevent unsupported trades from being silently omitted from the reported position.
+
+Duplicate IDs are detected from the raw trade ID before successful row parsing. This means a duplicate can still be reported even if another field on the same row is invalid.
+
+The guiding policy is **fail the complete run rather than calculate a partial book**.
+
+## Testing strategy
+
+The test suite is intentionally weighted toward unit tests because the highest-risk behaviour is deterministic business logic rather than framework integration.
+
+The main unit-test areas are:
+
+- Buy/Sell sign semantics;
+- half-open interval overlap and intersection;
+- daily, weekly, and monthly period boundaries;
+- continuous and hourly-window profile hours;
+- full-period Buy and Sell positions;
+- partial-period time weighting;
+- adjacent trades;
+- overlapping Buy/Sell exposure;
+- trades outside a reporting period;
+- separation of areas and load profiles;
+- unsupported reference data;
+- CSV structure, row validation, duplicate IDs, and direction parsing;
+- YAML-to-profile configuration translation.
+
+A lightweight integration test verifies the important application path:
+
+```text
+CSV
+ → CsvTradeRepository
+ → TradeBook
+ → calculate_positions
+ → expected Position
+```
+
+## Extensibility
+
+The architecture is designed so common growth paths have a narrow change surface.
+
+| Change | Expected impact |
 |---|---|
-| `0` | Success. |
-| `2` | The file was readable but its records are invalid (also Click's usage-error code). |
-| `3` | The source itself is unusable: missing, a directory, empty, or wrong columns. |
-| `1` | Unexpected. |
+| Add another Japanese area | Add it to `areas.yaml`; no calculation branch required. |
+| Add another supported trade type with the same normalized semantics | Add reference configuration and normalize the source representation if necessary; aggregation is unchanged. |
+| Add a profile using an existing profile behaviour | Configuration-only. |
+| Add a fundamentally new delivery shape | Add a new typed profile implementation and configuration mapping; aggregation remains unchanged. |
+| Change reporting horizon | Change/generate reporting periods; trade and profile semantics remain unchanged. |
+| Replace CSV with API/database/ETRM ingestion | Add/replace an outer adapter that produces the same normalized domain `TradeBook`. |
+| Increase scale beyond the simple overlap algorithm | Replace/optimize the calculation implementation while preserving domain and dashboard contracts. |
 
-Every problem in a file is collected and reported in one pass, so it can be fixed in one
-edit. Each report names the line, the trade, the field, the offending value, and the reason.
 
-```
-$ uv run power-position --as-of 2026-10-01 --input broken.csv
-The trade book is not valid, so no position was produced.
-broken.csv: 5 problem(s) in 3 of 3 row(s)
-  line 2 (trade T001): volume_mw=-5 -- Input should be greater than 0
-  line 3 (trade T002): area='' -- String should have at least 1 character
-  line 3 (trade T002): load_profile=Peak -- unsupported load_profile 'Peak'; registered profiles are: Base
-  line 3 (trade T002): end_date=2026-10-01 -- end_date must be after start_date 2026-11-01; ...
-  line 4 (trade T001): trade_id=T001 -- duplicate trade_id, already used on line 2; ...
-$ echo $?
-2
-```
+## Limitations and deliberate omissions
 
-Duplicate detection runs off the raw `trade_id` column rather than off successfully parsed
-trades, so a duplicate still surfaces when the earlier row also failed for another reason.
-Internal exceptions are never the only explanation shown; results go to stdout and
-diagnostics to stderr, so a run can be piped into another tool.
+The following are outside the current brief and are intentionally not inferred:
 
-## Performance and complexity
+- no amendment, cancellation, or trade-version lifecycle because the CSV has no such fields;
+- no Japanese holiday calendar for Peak delivery;
+- no intraday `as_of` timestamp or partial-day exposure treatment;
+- no P&L or valuation calculation;
+- no persistence or live market-data ingestion;
+- no authentication or authorization;
+- no exchange-specific contract-size or futures normalization until such a source is defined;
+- no hourly expansion of long-dated trades;
+- no row quarantine/partial-book calculation;
 
-`O(n·m)` — n trades by m reporting periods (23 by default). Trades are bucketed by area
-once, and trades disjoint from the whole reported window are discarded once up front.
+These would require explicit business or operational requirements rather than assumptions in the position engine.
 
-| Trades | Time | Per trade |
-|---|---|---|
-| 10,000 | 0.09 s | 8.9 µs |
-| 50,000 | 0.46 s | 9.2 µs |
-| 100,000 | 1.02 s | 10.2 µs |
+## Project structure
 
-Nine areas, 23 periods, `Decimal` throughout; Python 3.13 on Apple Silicon. The brief states
-no runtime target and none is claimed here — the figures are recorded so the complexity
-claim can be checked.
-
-## Limitations
-
-Not built, because the brief does not ask for it and inventing it would mean answering
-questions it deliberately leaves open:
-
-- **No OTC-specific semantics.** A new trade type can be registered, but no position
-  behaviour is attached, because none is defined.
-- **No intraday as-of timestamp.** Partial-day treatment of the current delivery day is
-  undefined and is not guessed at.
-- **No Peak profile shipped.** The extension point exists and is tested; the supplied book
-  is Base only.
-- **No row quarantining.** The run fails on invalid input. Quarantining with a prominent
-  incomplete-book warning is a reasonable operational policy but must be an explicit choice.
-- **No persistence, authentication, P&L, valuation, or live ingestion.**
-
-Open questions for a design discussion: whether shaped products need min/max hourly MW
-alongside Average MW; how amended, cancelled, or versioned trades are represented; whether
-area names should be restricted to an authoritative list and how that reference data is
-maintained; and what refresh, latency, and availability targets apply in production.
-
-## Getting started
-
-1. Install dependencies. The project uses `uv`; exact versions are in `uv.lock`.
-
-   ```bash
-   uv sync
-   ```
-
-2. Run the application. `--as-of` is required: the core never reads the clock, so a run
-   recorded in a terminal transcript can always be reproduced. Pass `--as-of today` to opt
-   in to the system date explicitly.
-
-   ```bash
-   uv run power-position --as-of 2026-10-01
-   uv run power-position --as-of 2026-10-01 --layout matrix
-   uv run power-position --as-of 2026-10-01 --format json
-   uv run power-position --help
-   ```
-
-3. Run the tests.
-
-   ```bash
-   uv run pytest                      # all
-   uv run pytest -m unit              # core only: no filesystem, no clock
-   uv run pytest -m "integration or e2e"
-   ```
-
-4. Code quality checks.
-
-   ```bash
-   uv run ruff check .
-   uv run mypy
-   ```
-
-### Known environment issue
-
-This checkout lives in iCloud-synced `~/Documents`. iCloud sets the macOS `UF_HIDDEN` flag
-on files inside `.venv`, and CPython 3.13's `site.addpackage` skips hidden `.pth` files, so
-uv's editable install can silently fail to put `src` on `sys.path`. The test suite is immune
-because pytest is configured with `pythonpath = ["src"]`. If `uv run power-position` reports
-`No module named 'app'`:
-
-```bash
-chflags nohidden .venv/lib/python3.13/site-packages/*.pth
+```text
+src/app/
+├── config/
+│   ├── areas.yaml
+│   ├── trade_types.yaml
+│   ├── load_profiles.yaml
+│   ├── schema.py
+│   ├── loader.py
+│   └── profiles.py
+├── core/
+│   ├── calculations.py
+│   ├── errors.py
+│   ├── models.py
+│   ├── periods.py
+│   └── profiles.py
+├── infrastructure/
+│   ├── csv_repository.py
+│   ├── schemas.py
+│   └── errors.py
+├── data/
+│   └── trades.csv
+├── dashboard/
+│   └── app.py
+└── logging_config.py
 ```
 
-The flag is re-applied each time uv reinstalls the project, so this may need repeating.
 
-The same conditions can leave `.venv/bin/ruff` wedged in an unkillable I/O wait, where even
-`ruff --version` hangs. A fresh copy outside the virtualenv works:
-
-```bash
-uvx ruff@0.14.14 check src tests --no-cache
-```
-
-The durable fixes for both are to exclude `.venv` from iCloud sync or to move the checkout
-out of `~/Documents`.
