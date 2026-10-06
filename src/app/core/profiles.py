@@ -1,77 +1,106 @@
-"""Load profiles: how many hours of an interval a trade actually delivers in.
-
-This is the project's main extension point. A profile answers exactly one question --
-"how many hours of this interval do you cover?" -- and knows nothing about direction,
-netting, areas, or reporting windows. Adding Peak, or any other shape, therefore means
-adding one class and registering it; the netting and reporting arithmetic is untouched
-(requirements.md S3.2, AC-19).
+"""
+Load profiles behaviour for position calculations.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
-from typing import Protocol, runtime_checkable
 
-from app.core.errors import UnsupportedLoadProfileError
-from app.core.interval import HOURS_PER_DAY, DateInterval
+from app.core.errors import (
+    InvalidProfileError,
+    UnsupportedProfileError,
+)
+from app.core.models import DeliveryPeriod
 
-
-@runtime_checkable
 class LoadProfile(Protocol):
-    """A rule for the hours within an interval that a trade delivers in."""
 
-    name: str
-
-    def covered_hours(self, interval: DateInterval) -> Decimal:
-        """Hours inside ``interval`` covered by this profile.
-
-        The interval is already clipped to the overlap of delivery and reporting periods
-        by the caller, so an implementation never needs to reason about either.
-        """
+    def delivery_hours(
+            self,
+            period: DeliveryPeriod,
+    ) -> Decimal:
         ...
 
+@dataclass(frozen=True, slots=True)
+class ContinuousProfile:
+    """Profile delivering continuously throughout its period."""
 
-class BaseProfile:
-    """Baseload: delivers in every hour of every delivery day (requirements.md S5.1).
+    def delivery_hours(
+        self,
+        period: DeliveryPeriod,
+    ) -> Decimal:
+        """Return delivery hours within the period."""
 
-    Covered hours are counted as whole days multiplied by 24 rather than by walking each
-    hour. That is an optimisation of the hour count, not a different model -- the result
-    is identical to summing 24 one-hour slots (S6.2).
-    """
+        days = (period.end - period.start).days
 
-    name = "Base"
-
-    def covered_hours(self, interval: DateInterval) -> Decimal:
-        return Decimal(interval.days * HOURS_PER_DAY)
-
-
-_REGISTRY: dict[str, LoadProfile] = {}
+        return Decimal(days * 24)
 
 
-def register_profile(profile: LoadProfile) -> None:
-    """Make a profile available to parsing. Re-registering a name replaces it."""
-    _REGISTRY[profile.name.casefold()] = profile
+@dataclass(frozen=True, slots=True)
+class HourlyWindowProfile:
+    """Profile delivering during configured hours and weekdays."""
 
+    start_hour: int
+    end_hour: int
+    weekdays: frozenset[int]
 
-def parse_profile(raw: str) -> LoadProfile:
-    """Resolve an external load_profile string to its covered-hour rule.
+    def __post_init__(self) -> None:
+        if not 0 <= self.start_hour < 24:
+            raise InvalidProfileError(
+                "start_hour must be between 0 and 23."
+            )
 
-    An unregistered profile is rejected rather than defaulted to Base: silently treating
-    an unknown shape as baseload would overstate delivered volume (S5.3, S12).
-    """
-    try:
-        return _REGISTRY[raw.strip().casefold()]
-    except KeyError:
-        supported = ", ".join(sorted(p.name for p in _REGISTRY.values()))
-        raise UnsupportedLoadProfileError(
-            f"unsupported load_profile {raw!r}; registered profiles are: {supported}"
-        ) from None
+        if not 1 <= self.end_hour <= 24:
+            raise InvalidProfileError(
+                "end_hour must be between 1 and 24."
+            )
 
+        if self.start_hour >= self.end_hour:
+            raise InvalidProfileError(
+                "start_hour must be before end_hour."
+            )
 
-def registered_profiles() -> tuple[str, ...]:
-    """Names of every registered profile, for diagnostics and tests."""
-    return tuple(sorted(p.name for p in _REGISTRY.values()))
+        if not self.weekdays:
+            raise InvalidProfileError(
+                "hourly window profile requires at least one weekday."
+            )
 
+    def delivery_hours(
+        self,
+        period: DeliveryPeriod,
+    ) -> Decimal:
+        """Return configured delivery hours within the period."""
 
-BASE = BaseProfile()
-register_profile(BASE)
+        hours_per_day = self.end_hour - self.start_hour
+        delivery_days = 0
+
+        current = period.start
+
+        while current < period.end:
+            if current.weekday() in self.weekdays:
+                delivery_days += 1
+
+            current += timedelta(days=1)
+
+        return Decimal(delivery_days * hours_per_day)
+
+@dataclass(frozen=True, slots=True)
+class ProfileRegistry:
+    """Configured load profiles available to the position engine."""
+
+    profiles: dict[str, LoadProfile]
+
+    def get(
+        self,
+        name: str,
+    ) -> LoadProfile:
+        try:
+            return self.profiles[name]
+        except KeyError:
+            raise UnsupportedProfileError(
+                f"Unsupported load profile: {name}"
+            ) from None
+
+    def items(self):
+        return self.profiles.items()
