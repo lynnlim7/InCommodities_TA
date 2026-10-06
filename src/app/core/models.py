@@ -7,8 +7,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal 
+from decimal import Decimal
 from enum import StrEnum
+
 
 class BuySell(StrEnum):
     """Direction of a trade from desk's perspective."""
@@ -29,7 +30,8 @@ class DeliveryPeriod:
     T003 Oct-26 Base, start date: 2026-10-01, end date: 2026-11-01
     Delivery period: [2026-10-01, 2026-11-01), excludes 2026-11-01
 
-    Adjacent products and reporting periods meet at the same boundary without overlaps/ special date handling
+    Adjacent products and reporting periods meet at the same boundary
+    without overlaps or special date handling.
     """
 
     start:date
@@ -66,6 +68,10 @@ class Trade:
     load_profile: str
     delivery: DeliveryPeriod
     volume_mw: Decimal
+    # Descriptive label only, never parsed: delivery comes from the structured
+    # fields above. Carried so a position can be explained in the trader's own
+    # product vocabulary.
+    product: str = ""
 
     @property
     def volume_mw_direction(self) -> Decimal: 
@@ -100,5 +106,18 @@ class Position:
     load_profile:str
     period: ReportingPeriod
     net_position_mw: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class TradeContribution:
+    """One trade's applicable delivery inside a reporting period.
+
+    Explains an aggregated Position: the contractual MW alone cannot be
+    summed across trades covering different parts of a period, so the hours
+    that weighted it are reported alongside the trade.
+    """
+
+    trade: Trade
+    applicable_hours: Decimal
 
 

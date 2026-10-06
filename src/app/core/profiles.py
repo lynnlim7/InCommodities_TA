@@ -4,6 +4,7 @@ Load profiles behaviour for position calculations.
 
 from __future__ import annotations
 
+from collections.abc import ItemsView
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -14,6 +15,7 @@ from app.core.errors import (
     UnsupportedProfileError,
 )
 from app.core.models import DeliveryPeriod
+
 
 class LoadProfile(Protocol):
     """How many hours a load profile actually delivers inside an interval."""
@@ -104,5 +106,6 @@ class ProfileRegistry:
                 f"Unsupported load profile: {name}"
             ) from None
 
-    def items(self):
+    def items(self) -> ItemsView[str, LoadProfile]:
+        """Configured profiles by name, in configuration order."""
         return self.profiles.items()

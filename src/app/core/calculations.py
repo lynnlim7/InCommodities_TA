@@ -11,10 +11,11 @@ from app.core.errors import UnsupportedAreaError
 from app.core.models import (
     Position,
     ReportingPeriod,
+    Trade,
     TradeBook,
+    TradeContribution,
 )
-from app.core.profiles import ProfileRegistry
-
+from app.core.profiles import LoadProfile, ProfileRegistry
 
 ZERO = Decimal("0")
 
@@ -48,18 +49,13 @@ def calculate_positions(
         )
 
         for period in periods:
-            overlap = trade.delivery.intersection(
-                period.delivery
+            delivery_hours = _applicable_hours(
+                trade,
+                period,
+                profile,
             )
 
-            if overlap is None:
-                continue
-
-            delivery_hours = profile.delivery_hours(
-                overlap
-            )
-
-            if delivery_hours == ZERO:
+            if delivery_hours is None:
                 continue
 
             key = (
@@ -79,6 +75,67 @@ def calculate_positions(
         profiles=profiles,
         supported_areas=supported_areas,
     )
+
+
+def _applicable_hours(
+    trade: Trade,
+    period: ReportingPeriod,
+    profile: LoadProfile,
+) -> Decimal | None:
+    """Hours this trade delivers inside the period, or None if it contributes nothing.
+
+    A trade contributes when its delivery interval overlaps the reporting
+    period and the load profile actually delivers hours inside that overlap.
+    Both the aggregation and the drill-down read the rule from here, so a
+    position can never show a contributing trade the engine did not use.
+    """
+
+    overlap = trade.delivery.intersection(
+        period.delivery
+    )
+
+    if overlap is None:
+        return None
+
+    delivery_hours = profile.delivery_hours(
+        overlap
+    )
+
+    if delivery_hours == ZERO:
+        return None
+
+    return delivery_hours
+
+
+def contributing_trades(
+    trade_book: TradeBook,
+    area: str,
+    load_profile: str,
+    period: ReportingPeriod,
+    profiles: ProfileRegistry,
+) -> tuple[TradeContribution, ...]:
+    """Return the trades that produced one aggregated position, in book order."""
+
+    profile = profiles.get(load_profile)
+
+    return tuple(
+        TradeContribution(
+            trade=trade,
+            applicable_hours=delivery_hours,
+        )
+        for trade in trade_book
+        if trade.area == area
+        and trade.load_profile == load_profile
+        and (
+            delivery_hours := _applicable_hours(
+                trade,
+                period,
+                profile,
+            )
+        )
+        is not None
+    )
+
 
 def _build_positions(
     weighted_totals: dict[

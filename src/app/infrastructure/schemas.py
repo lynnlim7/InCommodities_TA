@@ -6,7 +6,7 @@ Parses raw CSV strings into typed values before they enter the core module.
 """
 
 from datetime import date
-from decimal import Decimal 
+from decimal import Decimal
 from typing import Annotated
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator

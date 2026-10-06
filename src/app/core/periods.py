@@ -1,5 +1,6 @@
 """
-Reporting windows: the daily, weekly, and monthly reporting periods for position views using calendar weeks. 
+Reporting windows: the daily, weekly, and monthly reporting periods for
+position views using calendar weeks.
 """
 
 from __future__ import annotations
@@ -7,6 +8,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from app.core.models import DeliveryPeriod, ReportingPeriod
+
 
 def daily_periods(
         as_of: date, # 1 October 2026, Thursday
