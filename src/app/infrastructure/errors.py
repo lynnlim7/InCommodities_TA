@@ -11,7 +11,7 @@ class TradeSourceError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class RowError:
-    """"Validation error for one CSV row."""
+    """Validation error for one CSV row."""
 
     row_number: int
     field: str
@@ -39,10 +39,14 @@ class TradeBookValidationError(Exception):
         self.rows_read = rows_read
 
     def __str__(self) -> str:
-        """EReturn a user readable validation report"""
+        """Return a user readable validation report."""
+        error_count = len(self.errors)
+
         summary = (
-            f"{len(self.errors)} validation error"
-            f"in {self.rows_read} row"
+            f"{error_count} validation "
+            f"error{'' if error_count == 1 else 's'} in "
+            f"{self.rows_read} "
+            f"row{'' if self.rows_read == 1 else 's'} read"
         )
 
         details = "\n".join(

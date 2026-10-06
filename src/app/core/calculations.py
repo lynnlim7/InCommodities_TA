@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 
+from app.core.errors import UnsupportedAreaError
 from app.core.models import (
     Position,
     ReportingPeriod,
@@ -36,6 +37,12 @@ def calculate_positions(
     ] = defaultdict(lambda: ZERO)
 
     for trade in trade_book:
+        if trade.area not in supported_areas:
+            raise UnsupportedAreaError(
+                f"Unsupported area: {trade.area} "
+                f"(trade {trade.trade_id})"
+            )
+
         profile = profiles.get(
             trade.load_profile
         )
@@ -62,7 +69,7 @@ def calculate_positions(
             )
 
             weighted_totals[key] += (
-                trade.signed_volume_mw
+                trade.volume_mw_direction
                 * delivery_hours
             )
 
