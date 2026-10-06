@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import ItemsView
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Protocol
 
@@ -16,9 +16,20 @@ from app.core.errors import (
 )
 from app.core.models import DeliveryPeriod
 
+HOURS_PER_DAY = 24
+
+ALL_HOURS = frozenset(range(HOURS_PER_DAY))
+NO_HOURS: frozenset[int] = frozenset()
+
 
 class LoadProfile(Protocol):
-    """How many hours a load profile actually delivers inside an interval."""
+    """Which hours a load profile actually delivers."""
+
+    def hours_on(
+            self,
+            day: date,
+    ) -> frozenset[int]:
+        ...
 
     def delivery_hours(
             self,
@@ -30,6 +41,13 @@ class LoadProfile(Protocol):
 class ContinuousProfile:
     """Profile delivering continuously throughout its period."""
 
+    def hours_on(
+        self,
+        day: date,
+    ) -> frozenset[int]:
+        """Every hour of every day."""
+        return ALL_HOURS
+
     def delivery_hours(
         self,
         period: DeliveryPeriod,
@@ -38,7 +56,7 @@ class ContinuousProfile:
 
         days = (period.end - period.start).days
 
-        return Decimal(days * 24)
+        return Decimal(days * HOURS_PER_DAY)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +88,17 @@ class HourlyWindowProfile:
                 "hourly window profile requires at least one weekday."
             )
 
+    def hours_on(
+        self,
+        day: date,
+    ) -> frozenset[int]:
+        """The configured window on a delivery weekday, nothing otherwise."""
+
+        if day.weekday() not in self.weekdays:
+            return NO_HOURS
+
+        return frozenset(range(self.start_hour, self.end_hour))
+
     def delivery_hours(
         self,
         period: DeliveryPeriod,
@@ -88,6 +117,7 @@ class HourlyWindowProfile:
             current += timedelta(days=1)
 
         return Decimal(delivery_days * hours_per_day)
+
 
 @dataclass(frozen=True, slots=True)
 class ProfileRegistry:

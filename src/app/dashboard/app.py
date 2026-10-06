@@ -17,13 +17,20 @@ from pathlib import Path
 # This must run before any `app.*` import.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from decimal import Decimal
+
 import streamlit as st
 import yaml
 from pydantic import ValidationError
 
 from app.core.errors import PositionError
 from app.core.models import ReportingPeriod
-from app.dashboard.format import format_position, position_state
+from app.dashboard.format import (
+    PositionState,
+    format_energy,
+    format_position,
+    position_state,
+)
 from app.dashboard.snapshot import PositionView, Snapshot, load_snapshot
 from app.infrastructure.csv_repository import DEFAULT_TRADES_CSV
 from app.infrastructure.errors import TradeBookValidationError, TradeSourceError
@@ -35,8 +42,10 @@ PAGE_TITLE = "Power Position"
 # so further areas wrap onto another row.
 AREAS_PER_ROW = 3
 
-# Comfortable reading width for one area's position table.
-AREA_COLUMN_WIDTH_PX = 540
+# Comfortable reading width for one area's position table. The table carries a
+# delivery label plus the MW and MWh readings, and the trade drill-down below
+# it is wider still, so this leaves both room to breathe without wrapping.
+AREA_COLUMN_WIDTH_PX = 620
 
 
 STYLES = """
@@ -101,20 +110,27 @@ STYLES = """
   font-variant-numeric: tabular-nums; 
   }
 
+  /* Rows never wrap, so on a narrow screen a table scrolls inside its own
+     column rather than doubling every row's height or overlapping the next
+     area. */
+  .pp-scroll { overflow-x: auto; }
+
+  table.pp-table th, table.pp-table td { white-space: nowrap; }
+
   table.pp-table th {
       text-align: left; 
       font-size: .72rem; 
       font-weight: 600;
       text-transform: uppercase; 
       letter-spacing: .07em; opacity: .6;
-      padding: .3rem .7rem; 
+      padding: .3rem .5rem; 
       border-bottom: 1px solid rgba(128,128,128,.35);
   }
 
   table.pp-table th.pp-num, table.pp-table td.pp-num { text-align: right; }
 
   table.pp-table td {
-      padding: .34rem .7rem; font-size: .9rem;
+      padding: .34rem .5rem; font-size: .9rem;
       border-bottom: 1px solid rgba(128,128,128,.14);
   }
 
@@ -122,6 +138,49 @@ STYLES = """
 
   tr.pp-long  td { background: rgba(38, 125, 85, .13); }
   tr.pp-short td { background: rgba(165, 58, 58, .13); }
+
+  table.pp-table th.pp-sub, table.pp-table td.pp-sub {
+      font-weight: 400;
+      opacity: .7;
+  }
+
+
+  .pp-pos {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: .45rem;
+  }
+
+  .pp-val { min-width: 3.9rem; }
+
+  .pp-dir {
+      min-width: 3rem;
+      text-align: left;
+      font-size: .68rem;
+      letter-spacing: .06em;
+      opacity: .8;
+  }
+
+  .pp-legend {
+      font-size: .8rem;
+      opacity: .75;
+      margin: -1rem 0 1.4rem;
+  }
+
+  .pp-legend + .pp-legend { margin-top: -1.1rem; }
+
+  .pp-key {
+      display: inline-block;
+      width: .8rem;
+      height: .8rem;
+      border-radius: 2px;
+      margin: 0 .35rem -.1rem 1rem;
+  }
+
+  .pp-key:first-child { margin-left: 0; }
+  .pp-key-long  { background: rgba(38, 125, 85, .35); }
+  .pp-key-short { background: rgba(165, 58, 58, .35); }
 </style>
 """
 
@@ -164,6 +223,7 @@ def load_cached_snapshot(trades_mtime: float) -> Snapshot:
 def render_dashboard(snapshot: Snapshot) -> None:
     """Render the complete position dashboard."""
     render_header(snapshot)
+    render_legend()
     render_areas(snapshot)
     render_footer(snapshot)
 
@@ -221,45 +281,28 @@ def render_view(
     view: PositionView,
     area: str,
 ) -> None:
-    """Render one reporting horizon for an area."""
+    """Render one reporting horizon for an area.
+
+    Every load profile already nets into the area's hourly curve, so one
+    table per horizon shows the whole position.
+    """
     st.markdown(
         f'<div class="pp-view-title">{view.title}</div>',
         unsafe_allow_html=True,
     )
 
-    profiles = snapshot.profile_names
-
-    if len(profiles) == 1:
-        render_profile(snapshot, view, area, profiles[0])
-        return
-
-    tabs = st.tabs(profiles)
-
-    for tab, profile in zip(tabs, profiles, strict=True):
-        with tab:
-            render_profile(snapshot, view, area, profile)
-
-
-def render_profile(
-    snapshot: Snapshot,
-    view: PositionView,
-    area: str,
-    load_profile: str,
-) -> None:
-    """Render the position table and drill-down for one load profile."""
-    render_position_table(snapshot, view, area, load_profile)
-    render_trade_drilldown(snapshot, view, area, load_profile)
+    render_position_table(snapshot, view, area)
+    render_trade_drilldown(snapshot, view, area)
 
 
 def render_position_table(
     snapshot: Snapshot,
     view: PositionView,
     area: str,
-    load_profile: str,
 ) -> None:
     """Render net positions for one reporting horizon."""
     rows = [
-        _position_row(snapshot, view, area, load_profile, period)
+        _position_row(snapshot, view, area, period)
         for period in view.periods
     ]
 
@@ -267,6 +310,7 @@ def render_position_table(
         headers=(
             "<th>Delivery</th>"
             "<th class='pp-num'>Net Position (MW)</th>"
+            "<th class='pp-num pp-sub'>Net Position (MWh)</th>"
         ),
         rows=rows,
     )
@@ -276,21 +320,41 @@ def _position_row(
     snapshot: Snapshot,
     view: PositionView,
     area: str,
-    load_profile: str,
     period: ReportingPeriod,
 ) -> str:
-    """Build one position-table row."""
-    net_position_mw = snapshot.net_position_mw(
+    """Build one position-table row.
+
+    MW and MWh are two readings of the same exposure: MW is the average rate
+    over the period, MWh the energy it adds up to. They always share a sign,
+    so one long/short classification colours and labels the whole row.
+    """
+    position = snapshot.position(
         area=area,
-        load_profile=load_profile,
         period=period,
     )
 
+    exposure = position.exposure
+    state = position_state(exposure.net_mw)
+
     return (
-        f'<tr class="pp-{position_state(net_position_mw)}">'
+        f'<tr class="pp-{state}">'
         f"<td>{view.format_label(period.delivery)}</td>"
-        f'<td class="pp-num">{format_position(net_position_mw)}</td>'
+        f'<td class="pp-num">{_position_cell(exposure.net_mw, state)}</td>'
+        f'<td class="pp-num pp-sub">{format_energy(exposure.net_mwh)}</td>'
         "</tr>"
+    )
+
+
+def _position_cell(
+    net_mw: Decimal,
+    state: PositionState,
+) -> str:
+    """Net MW with its direction in words, so a row reads without the colour."""
+    return (
+        '<div class="pp-pos">'
+        f'<span class="pp-val">{format_position(net_mw)}</span>'
+        f'<span class="pp-dir">{state.upper()}</span>'
+        "</div>"
     )
 
 
@@ -298,7 +362,6 @@ def render_trade_drilldown(
     snapshot: Snapshot,
     view: PositionView,
     area: str,
-    load_profile: str,
 ) -> None:
     """Render a collapsed trade-level explanation for a selected position."""
     periods_by_label = {
@@ -306,7 +369,7 @@ def render_trade_drilldown(
         for period in view.periods
     }
 
-    widget_key = f"{area}-{load_profile}-{view.title}"
+    widget_key = f"{area}-{view.title}"
 
     with st.expander("Explain a position", expanded=False):
         selected_label = st.selectbox(
@@ -319,7 +382,6 @@ def render_trade_drilldown(
         render_contributions(
             snapshot=snapshot,
             area=area,
-            load_profile=load_profile,
             period=periods_by_label[selected_label],
         )
 
@@ -327,13 +389,17 @@ def render_trade_drilldown(
 def render_contributions(
     snapshot: Snapshot,
     area: str,
-    load_profile: str,
     period: ReportingPeriod,
 ) -> None:
-    """Render trades contributing to a selected reporting period."""
+    """Render trades contributing to a selected reporting period.
+
+    Contractual MW cannot be summed down the column, so the hours that
+    weighted each trade and the signed energy they produce are shown beside
+    it. The MWh column does sum, to the period's reported net MWh above,
+    across every load profile.
+    """
     contributions = snapshot.contributions(
         area=area,
-        load_profile=load_profile,
         period=period,
     )
 
@@ -346,8 +412,11 @@ def render_contributions(
             f"<tr>"
             f"<td>{contribution.trade.trade_id}</td>"
             f"<td>{contribution.trade.product}</td>"
+            f"<td>{contribution.trade.load_profile}</td>"
             f"<td>{contribution.trade.buy_sell}</td>"
             f'<td class="pp-num">{contribution.trade.volume_mw:,.2f}</td>'
+            f'<td class="pp-num">{contribution.applicable_hours:,.0f}</td>'
+            f'<td class="pp-num">{format_energy(contribution.energy_mwh)}</td>'
             f"</tr>"
         )
         for contribution in contributions
@@ -357,10 +426,28 @@ def render_contributions(
         headers=(
             "<th>Trade</th>"
             "<th>Product</th>"
+            "<th>Profile</th>"
             "<th>Direction</th>"
             "<th class='pp-num'>Quantity (MW)</th>"
+            "<th class='pp-num'>Hours</th>"
+            "<th class='pp-num'>Net Energy (MWh)</th>"
         ),
         rows=rows,
+    )
+
+
+def render_legend() -> None:
+    """Explain how to read a row once, under the header."""
+    st.markdown(
+        (
+            '<div class="pp-legend">'
+            '<span class="pp-key pp-key-long"></span>'
+            "<b>LONG</b>: net bought, sell to reduce"
+            '<span class="pp-key pp-key-short"></span>'
+            "<b>SHORT</b>: net sold, buy to cover"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
     )
 
 
@@ -380,10 +467,10 @@ def _render_table(*, headers: str, rows: list[str]) -> None:
     """Render a dashboard table using the shared table styling."""
     st.markdown(
         (
-            '<table class="pp-table">'
+            '<div class="pp-scroll"><table class="pp-table">'
             f"<thead><tr>{headers}</tr></thead>"
             f"<tbody>{''.join(rows)}</tbody>"
-            "</table>"
+            "</table></div>"
         ),
         unsafe_allow_html=True,
     )

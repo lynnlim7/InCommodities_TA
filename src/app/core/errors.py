@@ -9,7 +9,7 @@ class UnsupportedAreaError(PositionError):
     """Trade references an unsupported area."""
 
 class UnsupportedTradeTypeError(PositionError):
-    """Trader references an unsupported trade type."""
+    """Trade references an unsupported trade type."""
 
 class UnsupportedProfileError(PositionError):
     """Trade references an unsupported load profile."""

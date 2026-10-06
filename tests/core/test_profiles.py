@@ -1,20 +1,26 @@
 """Load-profile delivery hours.
 
-A profile answers exactly one question -- how many hours does this profile
-actually deliver inside this interval -- and that answer is the weight in the
-time-weighted position, so it is business critical.
+A profile answers which hours it delivers: on one day (``hours_on``, which
+places a trade on the hourly curve) and in total inside an interval
+(``delivery_hours``, which weights a trade in the drill-down). Both are
+business critical, and they must agree with each other.
 
 Profiles are constructed here with explicit parameters rather than read from
 configuration: the calculation engine must never branch on the names "Base" or
 "Peak", and these tests mirror that by never using them.
 """
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
 
 from app.core.errors import InvalidProfileError, UnsupportedProfileError
-from app.core.profiles import ContinuousProfile, HourlyWindowProfile, ProfileRegistry
+from app.core.profiles import (
+    ContinuousProfile,
+    HourlyWindowProfile,
+    ProfileRegistry,
+)
 from tests.helpers import delivery
 
 pytestmark = pytest.mark.unit
@@ -75,3 +81,33 @@ def test_registry_rejects_a_load_profile_it_was_not_configured_with():
 
     with pytest.raises(UnsupportedProfileError):
         registry.get("Peak")
+
+
+def test_hourly_window_profile_names_its_hours_on_a_delivery_day_only():
+    """Monday 08:00-20:00 is hours 8 to 19; Saturday delivers no hours."""
+    window = HourlyWindowProfile(start_hour=8, end_hour=20, weekdays=WEEKDAYS)
+
+    assert window.hours_on(date(2026, 10, 5)) == frozenset(range(8, 20))
+    assert window.hours_on(date(2026, 10, 10)) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [
+        ContinuousProfile(),
+        HourlyWindowProfile(start_hour=8, end_hour=20, weekdays=WEEKDAYS),
+    ],
+)
+def test_hours_on_each_day_add_up_to_the_delivery_hours(profile):
+    """The two descriptions of a profile's shape must never disagree.
+
+    The curve places trades with ``hours_on`` and the drill-down weights them
+    with ``delivery_hours``. If the two drifted apart, the drill-down's MWh
+    would stop reconciling to the reported position, so they are pinned here
+    over a whole month.
+    """
+    october = delivery("2026-10-01", "2026-11-01")
+
+    assert profile.delivery_hours(october) == sum(
+        len(profile.hours_on(day)) for day in october.each_day()
+    )

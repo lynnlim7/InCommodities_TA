@@ -14,6 +14,11 @@ PositionState = Literal["long", "short", "flat"]
 
 POSITION_PRECISION = Decimal("0.01")
 
+# Energy is a cumulative total and runs into the thousands of MWh, where a
+# fractional part carries no information a trader would act on. MW is a rate
+# and is read at two places, so the two units are quantized differently.
+ENERGY_PRECISION = Decimal("1")
+
 def format_daily_label(delivery: DeliveryPeriod) -> str:
     """A single delivery day: "01 Oct 2026"."""
     return f"{delivery.start:%d %b %Y}"
@@ -49,16 +54,35 @@ def position_state(net_position_mw: Decimal) -> PositionState:
 
 
 def format_position(net_position_mw: Decimal) -> str:
+    """Signed average net power, at two decimal places."""
+    return _format_signed(net_position_mw, POSITION_PRECISION)
 
-    rounded = net_position_mw.quantize(
-        POSITION_PRECISION, 
+
+def format_energy(net_position_mwh: Decimal) -> str:
+    """Signed net energy, at whole MWh."""
+    return _format_signed(net_position_mwh, ENERGY_PRECISION)
+
+
+def _format_signed(value: Decimal, precision: Decimal) -> str:
+    """Render a signed quantity at one precision, without a signed zero.
+
+    A long is always printed with an explicit ``+`` so direction is readable
+    without comparing against the neighbouring rows. A value too small to
+    print is shown unsigned: "-0" would imply a short the number does not
+    support, and the row colour still reports the real direction.
+    """
+
+    rounded = value.quantize(
+        precision, 
         rounding=ROUND_HALF_UP
         )
 
+    places = max(-int(precision.as_tuple().exponent), 0)
+
     if rounded > 0:
-        return f"+{rounded:,.2f}"
+        return f"+{rounded:,.{places}f}"
 
     if rounded < 0:
-        return f"{rounded:,.2f}"
+        return f"{rounded:,.{places}f}"
 
-    return "0.00"
+    return f"{abs(rounded):,.{places}f}"
