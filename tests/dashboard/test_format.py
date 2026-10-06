@@ -11,7 +11,6 @@ import pytest
 
 from app.dashboard.format import (
     format_daily_label,
-    format_hours,
     format_monthly_label,
     format_position,
     format_weekly_label,
@@ -89,8 +88,3 @@ def test_direction_is_classified_from_the_unrounded_position(net_position_mw, ex
     driven by the calculated value and only the printed number is rounded.
     """
     assert position_state(Decimal(net_position_mw)) == expected
-
-
-def test_applicable_hours_drop_a_meaningless_decimal_tail():
-    assert format_hours(Decimal("336")) == "336"
-    assert format_hours(Decimal("1680")) == "1,680"

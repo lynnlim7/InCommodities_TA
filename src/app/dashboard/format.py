@@ -62,11 +62,3 @@ def format_position(net_position_mw: Decimal) -> str:
         return f"{rounded:,.2f}"
 
     return "0.00"
-
-
-def format_hours(hours: Decimal) -> str:
-    
-    if hours == hours.to_integral_value():
-        return f"{hours:,.0f}"
-
-    return f"{hours:,.1f}"

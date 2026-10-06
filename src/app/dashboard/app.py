@@ -7,25 +7,43 @@ Position calculation and trade aggregation are performed when the snapshot is lo
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Streamlit prepends the running script's own directory to sys.path. That
+# directory is inside the `app` package and this file is itself named
+# `app.py`, so the entry shadows the package and `import app.core` fails with
+# "'app' is not a package". Putting `src` first makes the real package win.
+# This must run before any `app.*` import.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import streamlit as st
 import yaml
 from pydantic import ValidationError
 
 from app.core.errors import PositionError
 from app.core.models import ReportingPeriod
-from app.dashboard.format import format_hours, format_position, position_state
+from app.dashboard.format import format_position, position_state
 from app.dashboard.snapshot import PositionView, Snapshot, load_snapshot
 from app.infrastructure.csv_repository import DEFAULT_TRADES_CSV
 from app.infrastructure.errors import TradeBookValidationError, TradeSourceError
 
 PAGE_TITLE = "Power Position"
 
+# Areas are shown side by side so the book is read across rather than by
+# scrolling. Past this many, a position table gets too narrow to stay legible,
+# so further areas wrap onto another row.
+AREAS_PER_ROW = 3
+
+# Comfortable reading width for one area's position table.
+AREA_COLUMN_WIDTH_PX = 540
+
+
 STYLES = """
 <style>
   .block-container {
-      padding-top: 2.5rem; 
-      max-width: 1080px;
-      margin-left: auto; 
+      padding-top: 2.5rem;
+      margin-left: auto;
       margin-right: auto;
   }
 
@@ -139,18 +157,37 @@ ERROR_HINTS: tuple[tuple[type[Exception], str], ...] = (
 EXPECTED_ERRORS = tuple(error for error, _ in ERROR_HINTS)
 
 @st.cache_data(show_spinner="Loading trade book...")
-def load_cached_snapshota(trades_mtime: float) -> Snapshot:
+def load_cached_snapshot(trades_mtime: float) -> Snapshot:
 
     return load_snapshot()
 
 def render_dashboard(snapshot: Snapshot) -> None:
     """Render the complete position dashboard."""
     render_header(snapshot)
-
-    for area in snapshot.areas:
-        render_area(snapshot, area)
-
+    render_areas(snapshot)
     render_footer(snapshot)
+
+
+def render_areas(snapshot: Snapshot) -> None:
+    """Render every configured area side by side.
+
+    Areas share the same horizons in the same order, so placing them in
+    columns lets the desk compare the same delivery period across areas on one
+    line instead of scrolling between stacked sections.
+    """
+    areas = snapshot.areas
+    columns_per_row = min(len(areas), AREAS_PER_ROW)
+
+    for start in range(0, len(areas), columns_per_row):
+        row = areas[start : start + columns_per_row]
+
+        # Always build the full set of columns so every area keeps the same
+        # width, even when the last row is not full.
+        columns = st.columns(columns_per_row, gap="large")
+
+        for column, area in zip(columns, row, strict=False):
+            with column:
+                render_area(snapshot, area)
 
 
 def render_header(snapshot: Snapshot) -> None:
@@ -190,7 +227,7 @@ def render_view(
         unsafe_allow_html=True,
     )
 
-    profiles = snapshot.profile_names()
+    profiles = snapshot.profile_names
 
     if len(profiles) == 1:
         render_profile(snapshot, view, area, profiles[0])
@@ -311,9 +348,6 @@ def render_contributions(
             f"<td>{contribution.trade.product}</td>"
             f"<td>{contribution.trade.buy_sell}</td>"
             f'<td class="pp-num">{contribution.trade.volume_mw:,.2f}</td>'
-            f'<td class="pp-num">'
-            f"{format_hours(contribution.applicable_hours)}"
-            f"</td>"
             f"</tr>"
         )
         for contribution in contributions
@@ -325,15 +359,8 @@ def render_contributions(
             "<th>Product</th>"
             "<th>Direction</th>"
             "<th class='pp-num'>Quantity (MW)</th>"
-            "<th class='pp-num'>Applicable hours</th>"
         ),
         rows=rows,
-    )
-
-    st.caption(
-        "Quantity is the contractual MW of each trade. Trades covering "
-        "different parts of the period are weighted by their applicable "
-        "hours, so these quantities do not sum to the net position above."
     )
 
 
@@ -362,6 +389,18 @@ def _render_table(*, headers: str, rows: list[str]) -> None:
     )
 
 
+def _page_width_style(area_columns: int) -> str:
+    """Widen the page to fit the areas shown side by side.
+
+    Injected after the snapshot loads, because the width depends on how many
+    areas are configured. One area keeps a comfortable reading measure rather
+    than stretching a two-column table across the whole screen.
+    """
+    width = AREA_COLUMN_WIDTH_PX * area_columns
+
+    return f"<style>.block-container{{max-width:{width}px;}}</style>"
+
+
 def _render_expected_error(exc: Exception) -> None:
     """Render a user-facing message for an expected application failure."""
     hint = next(
@@ -387,6 +426,11 @@ def main() -> None:
     except EXPECTED_ERRORS as exc:
         _render_expected_error(exc)
         return
+
+    st.markdown(
+        _page_width_style(min(len(snapshot.areas), AREAS_PER_ROW)),
+        unsafe_allow_html=True,
+    )
 
     render_dashboard(snapshot)
 
