@@ -184,3 +184,31 @@ class TradeContribution:
         return self.trade.volume_mw_direction * self.applicable_hours
 
 
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceData:
+    """Configured areas, trade types and load profiles a book is checked against."""
+
+    areas: frozenset[str]
+    trade_types: frozenset[str]
+    load_profiles: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class ExcludedTrade:
+    """A quarantined trade, with whatever could still be read of it.
+
+    An unreadable area or delivery is None and treated as "could be any",
+    so every position the trade might have moved is marked incomplete.
+    """
+
+    trade_id: str | None
+    area: str | None
+    delivery: DeliveryPeriod | None
+
+    def may_affect(self, area: str, period: DeliveryPeriod) -> bool:
+        """Whether this trade could have contributed to ``area`` over ``period``."""
+        area_matches = self.area is None or self.area == area
+        period_matches = self.delivery is None or self.delivery.overlap(period)
+        return area_matches and period_matches

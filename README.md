@@ -79,8 +79,8 @@ Because MWh is the numerator of MW, the two readings always agree on direction a
 | 11 | **Product labels are descriptive.** The engine does not parse strings such as `Oct-26 Base` to derive delivery. Structured `start_date`, `end_date`, and `load_profile` fields are authoritative. |
 | 12 | **Every supplied row is treated as active.** No amendment, cancellation, or version semantics are inferred because the input does not provide them. |
 | 13 | **Price is input metadata, not a position driver.** It is validated at the CSV boundary but is not used to calculate physical MW exposure. |
-| 14 | **Invalid input fails the run.** The application does not calculate from a partial trade book because a plausible-looking position with missing exposure could lead to an incorrect hedge. |
-| 15 | **Configured reference data is authoritative.** A trade referencing an unsupported area, trade type or load profile fails rather than disappearing from the report. Trade types are validated against `trade_types.yaml` but do not alter the position formula. |
+| 14 | **Fail closed on the file, isolate bad rows.** A structural or calculation failure stops the run. A bad row is quarantined, never silently ignored: it is listed with its reason, and every position it could have moved is explicitly marked incomplete. One malformed trade does not blind the desk. |
+| 15 | **Configured reference data is authoritative.** A trade referencing an unsupported area, trade type or load profile is quarantined and reported rather than disappearing from the report. Trade types are validated against `trade_types.yaml` but do not alter the position formula. |
 | 16 | **Zero positions are explicit.** The calculation builds deterministic rows for every configured area and period combination so zero exposure can be distinguished from missing calculation output. A block with no hours in a period (Peak on a Saturday) is shown as a dash rather than as flat. |
 | 17 | **Reporting units.** Each period reports net MW and net MWh from one signed MW-hour total. MWh is the energy delivered into that period only; it is not a running cumulative total across periods, so the periods of one view never double-count a long-dated trade. |
 | 18 | **Displayed precision.** MW is shown at two decimal places and MWh at whole units. Energy totals run into the thousands, where a fractional part is not actionable. Rounding is half-up and applies to presentation only; the stored values stay exact `Decimal`. |
@@ -170,15 +170,14 @@ This keeps calculation behaviour stable if product naming conventions change and
 
 ```text
 CSV strings
-    → CsvTradeRow validation
-    → aggregate validation errors
-    → domain Trade
-    → TradeBook
+    → CsvTradeRow validation + reference-data checks
+    → good rows → domain Trade → TradeBook
+    → bad rows  → quarantine (line, trade, field, value, reason)
 ```
 
 Pydantic is used for untrusted external data; the core receives typed domain objects rather than CSV/Pydantic models. Direction is parsed into the domain `BuySell` enum at this boundary so invalid values such as `B`, `buy`, or `Purchase` are reported with the rest of the row errors instead of failing later during calculation.
 
-The repository reports all row-validation problems in one pass and rejects the book if any exist.
+The repository reports every problem in one pass. A bad row is quarantined and the rest of the book still loads; only a broken file stops the run.
 
 ### 3. Configuration describes variation; Python implements behaviour
 
@@ -211,9 +210,9 @@ Adding another profile that can be represented by an existing behaviour is confi
 
 Areas and trade types are strings rather than hard-coded enums because the brief expects the supported universe to grow. YAML therefore defines what is currently supported without requiring changes to the core domain model.
 
-An unsupported area fails explicitly instead of being silently omitted. This is important because silently dropping a trade can produce a plausible but incorrect flat position.
+An unsupported area is quarantined and surfaced instead of being silently omitted. Silently dropping a trade can produce a plausible but incorrect flat position.
 
-Trade type is validated reference data: a trade whose type is not in `trade_types.yaml` (for example a `Swap`) fails the run with `UnsupportedTradeTypeError`, exactly like an unsupported area. It is deliberately not part of the aggregation key because the current business requirement is the desk's net physical position, not a breakdown by source trade type. Future trade types with different source representations should normalize into the same domain `Trade` semantics where possible.
+Trade type is validated reference data: a trade whose type is not in `trade_types.yaml` (for example a `Swap`) is quarantined at the boundary, exactly like an unsupported area. The engine also raises `UnsupportedTradeTypeError` if one ever reaches it, so a calculation can never include unconfigured reference data. It is deliberately not part of the aggregation key because the current business requirement is the desk's net physical position, not a breakdown by source trade type. Future trade types with different source representations should normalize into the same domain `Trade` semantics where possible.
 
 ### 6. Both MW and MWh are reported, from one signed MW-hour total
 
@@ -274,16 +273,22 @@ Keeping the calculation outside Streamlit makes the core independently testable 
 
 ## Error handling
 
-The application distinguishes source failures from invalid records.
+The guiding policy is **fail closed on structural or calculation failures, but isolate row-level data-quality failures**, so one malformed trade among 100,000 does not blind the whole desk.
 
-- `TradeSourceError` represents an unusable source, such as a missing file, directory path, unreadable encoding, or invalid CSV structure/header.
-- `RowError` represents one actionable row-level validation problem and records the CSV line, trade ID when available, field, value, and reason.
-- `TradeBookValidationError` aggregates row errors so the user can correct the book in one pass.
-- Domain reference errors `UnsupportedAreaError`, `UnsupportedTradeTypeError` and `UnsupportedProfileError` prevent unsupported trades from being silently omitted from, or silently included in, the reported position.
+| Failure | Example | Outcome |
+|---|---|---|
+| Structural | Missing file, unreadable encoding, missing or duplicate columns | `TradeSourceError`: the run stops. Every row is equally untrustworthy. |
+| Configuration | Invalid YAML, an inverted Peak window | The run stops. |
+| Calculation | Unsupported reference data reaching the engine, a period outside the curve | A `PositionError` subclass: the run stops. |
+| Row-level | Negative volume, bad date, unknown direction, unconfigured area / trade type / profile, duplicate trade ID, a row with extra values | The trade is **quarantined**; the rest of the book is calculated. |
 
-Duplicate IDs are detected from the raw trade ID before successful row parsing. This means a duplicate can still be reported even if another field on the same row is invalid.
+A quarantined trade is never silently ignored:
 
-The guiding policy is **fail the complete run rather than calculate a partial book**.
+- **Surfaced.** The dashboard shows a reconciliation line (trades read, counted, quarantined), a banner, and every `RowError` with its CSV line, trade ID, field, value and reason.
+- **Marked incomplete.** Whatever can still be read of the row (its area and delivery dates) decides which positions it could have moved; only those rows are hatched and flagged incomplete. An unreadable or unconfigured area marks every area for those dates, and unreadable dates mark every period for that area. Over-marking is the safe direction.
+- **Neither copy guessed at.** Every copy of a duplicate trade ID is quarantined, since counting both would double the position and keeping one would be a guess.
+
+This is deliberately an MVP safeguard. A production version would add a tolerance limit (fail the run if, say, more than 0.1% of rows are bad, since that suggests a broken export), keep showing the last good snapshot when a refresh fails, and treat errors in purely descriptive fields such as price as warnings.
 
 ## Testing strategy
 
@@ -307,7 +312,8 @@ The main unit-test areas are:
 - the shortest and longest hour of a period, which expose short hours inside a period that averages long;
 - overlapping views (days, weeks, months) reconciling as reads of one curve;
 - unsupported reference data;
-- CSV structure, row validation, duplicate IDs, and direction parsing;
+- CSV structure failing the run, while bad rows, duplicate IDs, unconfigured reference data and extra values are quarantined;
+- which positions a quarantined trade marks incomplete;
 - YAML-to-profile configuration translation;
 - signed MW and whole-MWh display formatting, including rounding at zero;
 - long/short/flat classification from the unrounded net position.
@@ -322,7 +328,7 @@ CSV
  → expected Position
 ```
 
-A second integration test runs the shipped trade book and configuration through the snapshot and checks the hand-calculated Tokyo October position: +23,616 MWh and +31.74 MW, with hours ranging from +22 to +40 MW.
+Further integration tests run the shipped trade book through the snapshot and check the hand-calculated Tokyo October position (+23,616 MWh and +31.74 MW), check that one bad trade is quarantined while only the positions it could have moved are marked incomplete, and check that a broken file still fails the run.
 
 ## Extensibility
 
@@ -352,7 +358,7 @@ The following are outside the current brief and are intentionally not inferred:
 - no authentication or authorization;
 - no exchange-specific contract-size or futures normalization until such a source is defined;
 - no sub-hourly (e.g. 30-minute) curve resolution until a product needs it;
-- no row quarantine/partial-book calculation;
+- no tolerance limit on quarantined rows, no last-known-good snapshot, and no warning tier for descriptive fields (see Error handling);
 
 These would require explicit business or operational requirements rather than assumptions in the position engine.
 
