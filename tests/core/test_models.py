@@ -12,7 +12,7 @@ from decimal import Decimal
 import pytest
 
 from app.core.models import BuySell, DeliveryPeriod, ExcludedTrade
-from tests.helpers import delivery, make_trade
+from tests.builders import delivery, make_trade
 
 pytestmark = pytest.mark.unit
 

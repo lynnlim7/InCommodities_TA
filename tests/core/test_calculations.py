@@ -34,7 +34,7 @@ from app.core.profiles import (
     HourlyWindowProfile,
     ProfileRegistry,
 )
-from tests.helpers import book, make_trade, position_for, reporting
+from tests.builders import book, make_trade, position_for, reporting
 
 pytestmark = pytest.mark.unit
 

@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.core.curve import build_curves
+from app.core.curves import build_curves
 from app.core.errors import PositionCalculationError
 from app.core.models import BuySell
 from app.core.profiles import (
@@ -19,7 +19,7 @@ from app.core.profiles import (
     HourlyWindowProfile,
     ProfileRegistry,
 )
-from tests.helpers import book, delivery, make_trade
+from tests.builders import book, delivery, make_trade
 
 pytestmark = pytest.mark.unit
 

@@ -11,15 +11,15 @@ from decimal import Decimal
 
 import pytest
 
+from app.adapters.csv_repository import CsvTradeRepository
+from app.adapters.csv_schema import CSV_HEADERS
+from app.adapters.errors import TradeSourceError
 from app.core.calculations import calculate_positions
 from app.core.models import ReferenceData
 from app.core.periods import monthly_periods
 from app.core.profiles import ContinuousProfile, ProfileRegistry
 from app.dashboard.snapshot import load_snapshot
-from app.infrastructure.csv_repository import CsvTradeRepository
-from app.infrastructure.errors import TradeSourceError
-from app.infrastructure.schemas import CSV_HEADERS
-from tests.helpers import position_for
+from tests.builders import position_for
 
 pytestmark = pytest.mark.integration
 

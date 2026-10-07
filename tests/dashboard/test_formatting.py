@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.dashboard.format import (
+from app.dashboard.formatting import (
     format_daily_label,
     format_energy,
     format_monthly_label,
@@ -18,7 +18,7 @@ from app.dashboard.format import (
     format_weekly_label,
     position_state,
 )
-from tests.helpers import delivery
+from tests.builders import delivery
 
 pytestmark = pytest.mark.unit
 

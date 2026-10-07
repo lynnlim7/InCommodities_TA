@@ -16,6 +16,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from app.adapters.csv_schema import CSV_HEADERS, CsvTradeRow
+from app.adapters.errors import RowError, TradeSourceError
 from app.core.models import (
     DeliveryPeriod,
     ExcludedTrade,
@@ -23,8 +25,6 @@ from app.core.models import (
     Trade,
     TradeBook,
 )
-from app.infrastructure.errors import RowError, TradeSourceError
-from app.infrastructure.schemas import CSV_HEADERS, CsvTradeRow
 
 DEFAULT_TRADES_CSV = (
     Path(__file__).resolve().parent.parent / "data" / "trades.csv"

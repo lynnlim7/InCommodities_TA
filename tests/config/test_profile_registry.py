@@ -17,11 +17,11 @@ import pytest
 
 from app.config import loader
 from app.config.loader import load_yaml
-from app.config.profiles import build_profile_registry
+from app.config.profile_registry import build_profile_registry
 from app.config.schema import LoadProfilesConfig
 from app.core.errors import InvalidProfileError
 from app.core.profiles import ContinuousProfile, HourlyWindowProfile
-from tests.helpers import delivery
+from tests.builders import delivery
 
 pytestmark = pytest.mark.unit
 

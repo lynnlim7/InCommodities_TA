@@ -21,7 +21,7 @@ from app.core.profiles import (
     HourlyWindowProfile,
     ProfileRegistry,
 )
-from tests.helpers import delivery
+from tests.builders import delivery
 
 pytestmark = pytest.mark.unit
 

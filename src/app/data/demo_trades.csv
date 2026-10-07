@@ -1,0 +1,32 @@
+trade_id,trade_date,counterparty,area,trade_type,buy_sell,product,load_profile,start_date,end_date,volume_mw,price_jpy_kwh
+D001,2025-09-10,Sakura Power Trading,Tokyo,Futures,Buy,Cal-26 Base,Base,2026-01-01,2027-01-01,20,13.50
+D002,2026-06-12,Kanto Energy Partners,Tokyo,Futures,Buy,Q4-26 Base,Base,2026-10-01,2027-01-01,15,14.20
+D003,2026-09-03,Fuji Utility Services,Tokyo,Futures,Sell,Oct-26 Base,Base,2026-10-01,2026-11-01,8,15.10
+D004,2026-09-04,Minato Hedge Co,Tokyo,Futures,Buy,Oct-26 Peak,Peak,2026-10-01,2026-11-01,12,18.40
+D005,2026-09-05,Sakura Power Trading,Tokyo,OTC Forwards,Sell,Q4-26 Peak,Peak,2026-10-01,2027-01-01,6,19.10
+D006,2026-09-28,Kanto Energy Partners,Tokyo,Futures,Sell,Weekend 3-4 Oct-26 Base,Base,2026-10-03,2026-10-05,25,11.90
+D007,2026-09-29,Minato Hedge Co,Tokyo,Futures,Buy,Week 41-26 Base,Base,2026-10-05,2026-10-12,10,13.80
+D008,2026-09-15,Fuji Utility Services,Tokyo,OTC Forwards,Buy,Nov-26 Base,Base,2026-11-01,2026-12-01,10,14.60
+D009,2026-09-22,Sakura Power Trading,Tokyo,Futures,Sell,Dec-26 Peak,Peak,2026-12-01,2027-01-01,4,17.30
+D010,2026-07-08,Minato Hedge Co,Tokyo,Futures,Buy,Cal-27 Base,Base,2027-01-01,2028-01-01,25,16.00
+D011,2026-08-20,Kanto Energy Partners,Tokyo,OTC Forwards,Sell,Q2-27 Base,Base,2027-04-01,2027-07-01,7,12.90
+D012,2026-09-08,Osaka Grid Trading,Kansai,Futures,Buy,Q4-26 Base,Base,2026-10-01,2027-01-01,14,13.10
+D013,2026-09-09,Naniwa Power Co,Kansai,Futures,Sell,Oct-26 Base,Base,2026-10-01,2026-11-01,22,12.60
+D014,2026-09-10,Osaka Grid Trading,Kansai,Futures,Buy,Oct-26 Peak,Peak,2026-10-01,2026-11-01,8,17.80
+D015,2026-09-25,Naniwa Power Co,Kansai,OTC Forwards,Buy,Week 41-26 Base,Base,2026-10-05,2026-10-12,5,12.80
+D016,2026-09-26,Osaka Grid Trading,Kansai,Futures,Sell,Nov-26 Base,Base,2026-11-01,2026-12-01,6,13.40
+D017,2026-09-27,Naniwa Power Co,Kansai,Futures,Buy,Q2-27 Base,Base,2027-04-01,2027-07-01,12,13.00
+D018,2026-09-30,Osaka Grid Trading,Kansai,Futures,Buy,Fri 2 Oct-26 Peak,Peak,2026-10-02,2026-10-03,18,21.50
+D019,2026-09-11,Kanto Energy Partners,Tokyo,Futures,Buy,Jul-27 Base,Base,2027-07-01,2027-08-01,9,14.80
+D020,2026-09-12,Naniwa Power Co,Kansai,OTC Forwards,Sell,Aug-27 Base,Base,2027-08-01,2027-09-01,4,13.60
+D021,2026-09-13,Sakura Power Trading,Tokyo,Futures,Sell,Sep-27 Base,Base,2027-09-01,2027-10-01,5,14.40
+D101,2026-09-15,Chubu Grid KK,Chubu,Futures,Buy,Q4-26 Base,Base,2026-10-01,2027-01-01,18,13.40
+D102,2026-09-18,Minato Hedge Co,Tokyo,Futures,Sell,Oct-26 Overnight,Overnight,2026-10-01,2026-11-01,7,11.80
+D103,2026-09-20,Sakura Power Trading,Tokyo,OTC Options,Buy,Nov-26 Base,Base,2026-11-01,2026-12-01,9,14.90
+D104,2026-09-21,Fuji Utility Services,Kansai,Futures,Buy,Dec-26 Base,Base,2026-12-01,2026-11-01,5,15.00
+D105,2026-09-22,Kanto Energy Partners,Tokyo,Futures,Sell,Jan-27 Base,Base,2027-01-01,2027-02-01,not-a-number,14.10
+D106,2026-09-23,Osaka Grid Trading,Kansai,Futures,Buy,Feb-27 Base,Base,2027-02-01,2027-03-01,0,13.70
+D107,2026-09-24,Minato Hedge Co,Tokyo,Futures,Long,Mar-27 Base,Base,2027-03-01,2027-04-01,11,13.90
+D108,2026-09-25,Fuji Utility Services,Tokyo,Futures,Buy,May-27 Base,Base,2027-05-01,2027-06-01,10,13.20
+D108,2026-09-25,Fuji Utility Services,Tokyo,Futures,Buy,May-27 Base,Base,2027-05-01,2027-06-01,14,13.20
+D109,2026-09-26,Naniwa Power Co,Kansai,Futures,Sell,Jun-27 Base,Base,2027-06-01,2027-07-01,6,13.80,stray-value
