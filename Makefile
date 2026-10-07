@@ -9,7 +9,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup run test lint typecheck check
+.PHONY: setup
 
 PYTHON_PATH := src
 DASHBOARD := src/app/dashboard/app.py
@@ -29,7 +29,7 @@ help: ## Show available commands.
 		| awk -F':.*?## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
 setup: ## Install the locked project dependencies.
-	uv sync
+	uv sync --frozen
 
 run: ## Start the Streamlit dashboard.
 	PYTHONPATH=$(PYTHON_PATH) uv run streamlit run $(DASHBOARD)
