@@ -38,10 +38,6 @@ class CsvTradeRow(BaseModel):
     area: str = Field(min_length=1)
     trade_type: str = Field(min_length=1)
 
-    # Parsed to the domain enum here rather than carried as a string:
-    # direction is the sign of the position, and an unrecognised value
-    # must fail in the one-pass validation report alongside every other
-    # problem in the file, not later in the calculation.
     buy_sell: Direction
     product: str = Field(min_length=1)
     load_profile: str = Field(min_length=1)

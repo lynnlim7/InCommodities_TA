@@ -1,8 +1,8 @@
 """
 Load and validate trades from CSV file.
 
-A broken file fails the run. A bad row is quarantined with every reason it
-failed, and the rest of the book is still loaded.
+A broken file fails the run. 
+A bad row is quarantined with every reason it failed, and the rest of the book is still loaded.
 """
 
 from __future__ import annotations
@@ -196,11 +196,7 @@ def _readable_part(
     trade_id: str | None,
     reference: ReferenceData,
 ) -> ExcludedTrade:
-    """Keep the area and delivery of a quarantined row if they can be read.
-
-    An unconfigured area (e.g. "Toyko") is kept as unknown, so it marks every
-    area incomplete rather than none.
-    """
+    """Keep the area and delivery of a quarantined row if they can be read."""
 
     area = (row.get("area") or "").strip()
 

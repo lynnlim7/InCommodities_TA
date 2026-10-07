@@ -234,20 +234,13 @@ def render_dashboard(snapshot: Snapshot) -> None:
 
 
 def render_areas(snapshot: Snapshot) -> None:
-    """Render every configured area side by side.
-
-    Areas share the same horizons in the same order, so placing them in
-    columns lets the desk compare the same delivery period across areas on one
-    line instead of scrolling between stacked sections.
-    """
+    """Render every configured area side by side."""
     areas = snapshot.areas
     columns_per_row = min(len(areas), AREAS_PER_ROW)
 
     for start in range(0, len(areas), columns_per_row):
         row = areas[start : start + columns_per_row]
 
-        # Always build the full set of columns so every area keeps the same
-        # width, even when the last row is not full.
         columns = st.columns(columns_per_row, gap="large")
 
         for column, area in zip(columns, row, strict=False):
@@ -286,11 +279,7 @@ def render_view(
     view: PositionView,
     area: str,
 ) -> None:
-    """Render one reporting horizon for an area.
-
-    Every load profile already nets into the area's hourly curve, so one
-    table per horizon shows the whole position.
-    """
+    """Render one reporting horizon for an area."""
     st.markdown(
         f'<div class="pp-view-title">{view.title}</div>',
         unsafe_allow_html=True,
