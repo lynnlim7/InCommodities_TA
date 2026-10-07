@@ -85,7 +85,7 @@ class Snapshot:
         area: str,
         period: ReportingPeriod,
     ) -> Position:
-        """Return the calculated position for one reporting cell."""
+        """Return the calculated position for one reporting cell"""
         return self.position_index[(area, period)]
 
     def excluded_trades(

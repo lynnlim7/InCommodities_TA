@@ -1,38 +1,105 @@
-# Power Position Tool 
+# Power Position Tool
 
 # Quick start:
-#  	make setup
 #  	make run
 
-# Verify: 
+# Verify:
+#  	make setup
 #  	make check
 
 .DEFAULT_GOAL := help
 
-.PHONY: setup
+.PHONY: help setup run stop logs run-local test lint typecheck check
 
 PYTHON_PATH := src
 DASHBOARD := src/app/dashboard/main.py
+
+IMAGE := power-position
+CONTAINER := power-position
+
+# Override if 8501 is already taken on the host:  make run PORT=8600
+PORT ?= 8501
+URL := http://localhost:$(PORT)
 
 help: ## Show available commands.
 	@echo "Power Position Tool"
 	@echo ""
 	@echo "Quick start:"
-	@echo "  make setup      Install locked dependencies"
-	@echo "  make run        Start the Streamlit dashboard"
+	@echo "  make run        Build and open the dashboard in a browser (Docker)"
+	@echo "  make stop       Stop the dashboard"
 	@echo ""
 	@echo "Verification:"
+	@echo "  make setup      Install locked dependencies"
 	@echo "  make check      Run tests, linting, and type checking"
 	@echo ""
 	@echo "Individual commands:"
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk -F':.*?## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
+run: ## Build and start the dashboard in Docker, then open it in a browser.
+	@docker version >/dev/null 2>&1 || { \
+		echo "Docker does not look available or running."; \
+		echo "  Start Docker Desktop and retry, or run without Docker:  make run-local"; \
+		exit 1; \
+	}
+	@echo "==> Building $(IMAGE) (first run pulls the base image, so give it a minute)"
+	@docker build -t $(IMAGE) .
+	@docker rm -f $(CONTAINER) >/dev/null 2>&1 || true
+	@echo "==> Starting the dashboard on port $(PORT)"
+	@docker run -d --name $(CONTAINER) -p $(PORT):8501 $(IMAGE) >/dev/null || { \
+		echo "Could not start the container, usually because port $(PORT) is in use."; \
+		echo "  Retry on another port:  make run PORT=8600"; \
+		exit 1; \
+	}
+	@# Wait for Streamlit's own health endpoint to report ready, so the browser
+	@# never opens on a server that is still booting. The container's
+	@# HEALTHCHECK does the probing, which keeps this loop dependent only on
+	@# docker rather than on curl being installed on the host.
+	@printf "==> Waiting for the dashboard to come up"
+	@waited=0; \
+	while [ $$waited -lt 90 ]; do \
+		state=$$(docker inspect -f '{{.State.Health.Status}}' $(CONTAINER) 2>/dev/null || echo unknown); \
+		if [ "$$state" = "healthy" ]; then echo " ready"; break; fi; \
+		running=$$(docker inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null || echo false); \
+		if [ "$$running" != "true" ]; then \
+			echo ""; \
+			echo "The dashboard container exited before it was ready. Logs:"; \
+			docker logs $(CONTAINER); \
+			exit 1; \
+		fi; \
+		printf "."; \
+		sleep 1; \
+		waited=$$((waited + 1)); \
+	done; \
+	if [ $$waited -ge 90 ]; then \
+		echo ""; \
+		echo "Timed out waiting for the dashboard. Logs:"; \
+		docker logs $(CONTAINER); \
+		exit 1; \
+	fi
+	@echo "==> Dashboard ready at $(URL)"
+	@if command -v open >/dev/null 2>&1; then open "$(URL)"; \
+	elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$(URL)"; \
+	else echo "    Open $(URL) in your browser."; fi
+	@echo "    Stop it with:  make stop"
+
+stop: ## Stop and remove the dashboard container.
+	@# `docker rm -f` succeeds whether or not the container exists, so the
+	@# message is driven by looking it up rather than by the exit status.
+	@if [ -n "$$(docker ps -aq --filter name=^$(CONTAINER)$$ 2>/dev/null)" ]; then \
+		docker rm -f $(CONTAINER) >/dev/null && echo "Dashboard stopped."; \
+	else \
+		echo "Dashboard was not running."; \
+	fi
+
+logs: ## Follow the dashboard container logs.
+	docker logs -f $(CONTAINER)
+
+run-local: ## Start the dashboard without Docker (needs uv and make setup).
+	PYTHONPATH=$(PYTHON_PATH) uv run streamlit run $(DASHBOARD)
+
 setup: ## Install the locked project dependencies.
 	uv sync --frozen
-
-run: ## Start the Streamlit dashboard.
-	PYTHONPATH=$(PYTHON_PATH) uv run streamlit run $(DASHBOARD)
 
 test: ## Run the full pytest suite.
 	PYTHONPATH=$(PYTHON_PATH) uv run pytest

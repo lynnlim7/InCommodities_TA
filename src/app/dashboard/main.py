@@ -37,6 +37,37 @@ WARNING_SIGN = "\u26a0"
 AREAS_PER_ROW = 3
 AREA_COLUMN_WIDTH_PX = 620
 
+# Hover text for table headers, so a column explains itself in place. Keyed by
+# the header label exactly as it is rendered, which keeps the wording in one
+# place and makes a missing hint obvious.
+COLUMN_HINTS = {
+    "Delivery": "The period this row covers, start date included, end date excluded.",
+    "Net Position (MW)": "Average net power over the period: positive is long, negative is short.",
+    "Net Position (MWh)": "Total net energy delivered over the period (average MW times hours).",
+    "Trade": "The trade ID as it appears in the trade book.",
+    "Product": (
+        "The human-readable product string from the CSV. Shown for "
+        "reconciliation only: the calculation never parses it."
+    ),
+    "Profile": (
+        "The load profile that decides which hours of each day this trade "
+        "delivers into (for example Base every hour, Peak weekday daytime)."
+    ),
+    "Direction": "Buy adds to the position, Sell subtracts from it.",
+    "Quantity (MW)": (
+        "The contractual MW on the trade, not time weighted. It cannot be "
+        "summed down this column, which is why the hours are shown beside it."
+    ),
+    "Hours": (
+        "The hours this trade actually delivers inside the reporting period, "
+        "after its profile and delivery dates are applied."
+    ),
+    "Net Energy (MWh)": (
+        "Signed energy this trade contributes. These do sum, to the period's "
+        "reported net MWh above, across every load profile."
+    ),
+}
+
 
 STYLES = """
 <style>
@@ -62,10 +93,19 @@ STYLES = """
     letter-spacing: -.02em; 
     }
 
-  .pp-header .pp-asof { 
-    font-size: .95rem; 
-    opacity: .75; 
-    white-space: nowrap; 
+  /* Refresh time sits directly under the title: it is the first thing a desk
+     checks before trusting a number on the screen. */
+  .pp-header .pp-refreshed {
+    font-size: .78rem;
+    opacity: .55;
+    margin-top: .3rem;
+    font-variant-numeric: tabular-nums;
+    }
+
+  .pp-header .pp-asof {
+    font-size: .95rem;
+    opacity: .75;
+    white-space: nowrap;
     }
 
   .pp-area {
@@ -152,6 +192,16 @@ STYLES = """
       opacity: .7;
   }
 
+  /* A header carrying hover text advertises it with a dotted underline, so the
+     tooltip is discoverable without adding an icon to every column. */
+  table.pp-table th.pp-hint {
+      cursor: help;
+      text-decoration: underline dotted rgba(128,128,128,.6);
+      text-underline-offset: 3px;
+  }
+
+  table.pp-table th.pp-hint:hover { opacity: .9; }
+
 
   .pp-pos {
       display: flex;
@@ -230,7 +280,6 @@ def render_dashboard(snapshot: Snapshot) -> None:
     render_data_quality(snapshot)
     render_legend()
     render_areas(snapshot)
-    render_footer(snapshot)
 
 
 def render_areas(snapshot: Snapshot) -> None:
@@ -249,11 +298,16 @@ def render_areas(snapshot: Snapshot) -> None:
 
 
 def render_header(snapshot: Snapshot) -> None:
-    """Render the dashboard title and business reporting date."""
+    """Render the title, the refresh time, and the business reporting date."""
     st.markdown(
         (
             '<div class="pp-header">'
+            "<div>"
             "<h1>Power Position</h1>"
+            f'<div class="pp-refreshed">'
+            f"Last refreshed: {snapshot.refreshed_at:%-d %b %Y, %H:%M} JST"
+            "</div>"
+            "</div>"
             f'<div class="pp-asof">'
             f"{snapshot.as_of:%-d %b %Y}, {snapshot.as_of:%A}"
             "</div>"
@@ -302,12 +356,40 @@ def render_position_table(
 
     _render_table(
         headers=(
-            "<th>Delivery</th>"
-            "<th class='pp-num'>Net Position (MW)</th>"
-            "<th class='pp-num pp-sub'>Net Position (MWh)</th>"
+            f"{_header_cell('Delivery')}"
+            f"{_header_cell('Net Position (MW)', numeric=True)}"
+            f"{_header_cell('Net Position (MWh)', numeric=True, sub=True)}"
         ),
         rows=rows,
     )
+
+
+def _header_cell(
+    label: str,
+    *,
+    numeric: bool = False,
+    sub: bool = False,
+) -> str:
+    """One table header, carrying its explanation as hover text.
+
+    The wording comes from ``COLUMN_HINTS``, so a column's meaning is defined
+    once and every table that renders that header gets the same tooltip.
+    """
+    hint = COLUMN_HINTS.get(label)
+
+    classes = " ".join(
+        name
+        for name, applies in (
+            ("pp-num", numeric),
+            ("pp-sub", sub),
+            ("pp-hint", hint is not None),
+        )
+        if applies
+    )
+
+    title = f' title="{escape(hint)}"' if hint else ""
+
+    return f"<th class='{classes}'{title}>{label}</th>"
 
 
 def _position_row(
@@ -435,13 +517,13 @@ def render_contributions(
 
     _render_table(
         headers=(
-            "<th>Trade</th>"
-            "<th>Product</th>"
-            "<th>Profile</th>"
-            "<th>Direction</th>"
-            "<th class='pp-num'>Quantity (MW)</th>"
-            "<th class='pp-num'>Hours</th>"
-            "<th class='pp-num'>Net Energy (MWh)</th>"
+            f"{_header_cell('Trade')}"
+            f"{_header_cell('Product')}"
+            f"{_header_cell('Profile')}"
+            f"{_header_cell('Direction')}"
+            f"{_header_cell('Quantity (MW)', numeric=True)}"
+            f"{_header_cell('Hours', numeric=True)}"
+            f"{_header_cell('Net Energy (MWh)', numeric=True)}"
         ),
         rows=rows,
     )
@@ -497,18 +579,6 @@ def render_data_quality(snapshot: Snapshot) -> None:
             ),
             language=None,
         )
-
-
-def render_footer(snapshot: Snapshot) -> None:
-    """Render snapshot refresh metadata."""
-    st.markdown(
-        (
-            '<div style="margin-top:2.5rem;font-size:.8rem;opacity:.55">'
-            f"Last refreshed: {snapshot.refreshed_at:%-d %b %Y, %H:%M} JST"
-            "</div>"
-        ),
-        unsafe_allow_html=True,
-    )
 
 
 def _render_table(*, headers: str, rows: list[str]) -> None:

@@ -1,0 +1,30 @@
+# Keep the build context to the application and its lockfile. Anything that is
+# regenerated inside the image, or belongs only to a developer's machine, is
+# excluded: a smaller context means a faster, more reproducible build, and a
+# copied-in host virtualenv would shadow the one the image installs.
+
+.venv/
+__pycache__/
+*.py[codz]
+
+.git/
+.gitignore
+
+# Local tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.benchmarks/
+
+# Agent tooling, not part of the application
+.agents/
+.claude/
+skills-lock.json
+
+# Tests and docs are not needed at runtime: the image serves the dashboard, and
+# `make check` runs the suite on the host against the same locked dependencies.
+tests/
+LICENSE
+
+Dockerfile
+.dockerignore
