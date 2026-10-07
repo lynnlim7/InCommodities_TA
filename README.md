@@ -12,32 +12,31 @@ The calculation core is intentionally independent of CSV parsing and Streamlit. 
 
 ## Quick start
 
-The project uses `uv` for dependency management and a `Makefile` as the developer interface.
+### Prerequisites
+- Python 3.13
+- `uv`
+- `make`
 
-### Run the application
-From the repository root:
-`make setup`
-`make run`
+### Setup
+Clone the repository and install the locked dependecies:
+ ```bash
+git clone <repository-url>
+cd <repository>
+make setup
+ ```
 
-`make setup` installs the locked dependencies from `uv.lock` and `make run` starts the Streamlit dashboard.
+Start the Streamlit dashboard:
+```bash
+make run
+```
 
-### Verify the implementation 
+The application will be available at the local URL displayed by Streamlit.
+
+### Verification
 Run the complete test suite with: 
-`make check`
-
-### Available commands
-
-| Command | Purpose |
-|---|---|
-| `make setup` | Install the locked project dependencies. |
-| `make run` | Start the Streamlit dashboard. |
-| `make test` | Run the full pytest suite. |
-| `make lint` | Run Ruff checks. |
-| `make typecheck` | Run mypy. |
-| `make check` | Run tests, linting, and type checking. |
-| `make help` | Show the available targets. |
-
-The assessment reporting date is **1 October 2026**. The application should use this date as the default `as_of` date for the required views rather than deriving business results implicitly from the machine clock.
+```bash
+make check
+```
 
 ## Business interpretation
 
