@@ -15,28 +15,73 @@ Positions are reported in both MW and MWh, with positive values representing a l
 ## Quick start
 
 ### Prerequisites
-- Python 3.13
-- `uv`
-- `make`
+- `docker` and `make` to run the dashboard
+- Python 3.13 and `uv` to run the test suite
 
 ### Setup
-Clone the repository and install the locked dependecies:
+Clone the repository and start the dashboard:
  ```bash
 git clone <repository-url>
 cd <repository>
-make setup
+make run
  ```
 
-Start the Streamlit dashboard:
+`make run` builds the image, waits for the server to report healthy, and then
+opens the dashboard in a browser. Stop it with `make stop`.
+
+If port 8501 is already in use, pick another: `make run PORT=8600`.
+
+To run without Docker instead:
 ```bash
-make run
+make setup
+make run-local
 ```
 
-The application will be available at the local URL displayed by Streamlit.
+### Demo
+A second trade book, `src/app/data/demo_trades.csv`, carries deliberately
+invalid rows so the quarantine path is visible:
+```bash
+make demo
+```
+
+Ten of its thirty-one rows are rejected, one per failure mode: an unconfigured
+area, trade type and load profile; an inverted delivery period; a non-numeric
+volume; a zero volume; an unrecognised direction; a duplicated trade ID (both
+copies); and a row with more values than columns.
+
+`make demo` also mounts `src/app/config` and `src/app/data` from the working
+copy over the image's own copies, so configuration can be edited while the
+dashboard is running. Edit a file, press `R` in the browser, and the snapshot
+reloads. Three edits each admit one quarantined trade:
+
+| Edit | Effect |
+| --- | --- |
+| `areas.yaml`: add `- Chubu` | D101 counts, and Chubu appears as a third area |
+| `trade_types.yaml`: add `- OTC Options` | D103 counts |
+| `load_profiles.yaml`: add the block below | D102 counts |
+
+```yaml
+  Overnight:
+    type: hourly_window
+    start_hour: 0
+    end_hour: 8
+    weekdays:
+      - Monday
+      - Tuesday
+      - Wednesday
+      - Thursday
+      - Friday
+      - Saturday
+      - Sunday
+```
+
+An `hourly_window` requires `start_hour` before `end_hour`, so a window that
+wraps past midnight cannot be expressed as a single profile.
 
 ### Verification
 Run the complete test suite with: 
 ```bash
+make setup
 make check
 ```
 

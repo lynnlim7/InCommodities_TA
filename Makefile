@@ -9,7 +9,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup run stop logs run-local test lint typecheck check
+.PHONY: help setup run demo _up stop logs run-local test lint typecheck check
 
 PYTHON_PATH := src
 DASHBOARD := src/app/dashboard/main.py
@@ -20,6 +20,18 @@ CONTAINER := power-position
 # Override if 8501 is already taken on the host:  make run PORT=8600
 PORT ?= 8501
 URL := http://localhost:$(PORT)
+
+# Extra `docker run` arguments, set per target below.
+DOCKER_ARGS :=
+
+# `make demo` mounts the config and data directories from the working copy over
+# the ones baked into the image, so editing a YAML on the host is visible to the
+# container. Without the mounts the image's own copies would win and a live
+# config change would appear to do nothing.
+DEMO_ARGS := \
+	-e POWER_POSITION_TRADES_CSV=/app/src/app/data/demo_trades.csv \
+	-v "$(CURDIR)/src/app/config:/app/src/app/config:ro" \
+	-v "$(CURDIR)/src/app/data:/app/src/app/data:ro"
 
 help: ## Show available commands.
 	@echo "Power Position Tool"
@@ -37,6 +49,21 @@ help: ## Show available commands.
 		| awk -F':.*?## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
 run: ## Build and start the dashboard in Docker, then open it in a browser.
+run: _up
+
+demo: ## Same, on the demo trade book, with config and data live-editable.
+demo: DOCKER_ARGS := $(DEMO_ARGS)
+demo: _up
+	@echo ""
+	@echo "    Demo mode. The trade book has deliberate bad rows, so the"
+	@echo "    quarantine warning and the incomplete markers are visible."
+	@echo ""
+	@echo "    Edit src/app/config/, then press R in the browser to reload:"
+	@echo "      areas.yaml        add '- Chubu'       -> D101 counts, Chubu appears"
+	@echo "      trade_types.yaml  add '- OTC Options' -> D103 counts"
+	@echo "      load_profiles.yaml add an Overnight block (see README) -> D102 counts"
+
+_up:
 	@docker version >/dev/null 2>&1 || { \
 		echo "Docker does not look available or running."; \
 		echo "  Start Docker Desktop and retry, or run without Docker:  make run-local"; \
@@ -46,7 +73,7 @@ run: ## Build and start the dashboard in Docker, then open it in a browser.
 	@docker build -t $(IMAGE) .
 	@docker rm -f $(CONTAINER) >/dev/null 2>&1 || true
 	@echo "==> Starting the dashboard on port $(PORT)"
-	@docker run -d --name $(CONTAINER) -p $(PORT):8501 $(IMAGE) >/dev/null || { \
+	@docker run -d --name $(CONTAINER) -p $(PORT):8501 $(DOCKER_ARGS) $(IMAGE) >/dev/null || { \
 		echo "Could not start the container, usually because port $(PORT) is in use."; \
 		echo "  Retry on another port:  make run PORT=8600"; \
 		exit 1; \

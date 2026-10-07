@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import os
 from decimal import Decimal
 from html import escape
 
@@ -21,6 +22,7 @@ from pydantic import ValidationError
 
 from app.adapters.csv_repository import DEFAULT_TRADES_CSV
 from app.adapters.errors import TradeSourceError
+from app.config.loader import AREAS_YAML, LOAD_PROFILES_YAML, TRADE_TYPES_YAML
 from app.core.errors import PositionError
 from app.core.models import ExcludedTrade, ReportingPeriod
 from app.dashboard.formatting import (
@@ -32,6 +34,10 @@ from app.dashboard.formatting import (
 from app.dashboard.snapshot import PositionView, Snapshot, load_snapshot
 
 PAGE_TITLE = "Power Position"
+
+# Points the dashboard at a different trade book, for a demo or a dry run,
+# without editing code or the committed dataset.
+TRADES_CSV_ENV = "POWER_POSITION_TRADES_CSV"
 
 WARNING_SIGN = "\u26a0"
 AREAS_PER_ROW = 3
@@ -269,10 +275,57 @@ ERROR_HINTS: tuple[tuple[type[Exception], str], ...] = (
 
 EXPECTED_ERRORS = tuple(error for error, _ in ERROR_HINTS)
 
-@st.cache_data(show_spinner="Loading trade book...")
-def load_cached_snapshot(trades_mtime: float) -> Snapshot:
 
-    return load_snapshot()
+def _trades_csv() -> Path:
+    """The trade book to load.
+
+    Defaults to the book shipped in the package, and can be pointed at another
+    file for a demo without touching the code or the committed dataset.
+    """
+    override = os.environ.get(TRADES_CSV_ENV)
+
+    return Path(override) if override else DEFAULT_TRADES_CSV
+
+
+def _source_mtimes(trades_csv: Path) -> tuple[float, ...]:
+    """Modification times of every file a snapshot is built from.
+
+    This is the cache key, so it has to name the configuration as well as the
+    trade book: editing areas.yaml, trade_types.yaml or load_profiles.yaml
+    changes the positions, and keying on the trade book alone would serve a
+    stale snapshot until the CSV happened to change.
+    """
+    return tuple(
+        _mtime(path)
+        for path in (
+            trades_csv,
+            AREAS_YAML,
+            TRADE_TYPES_YAML,
+            LOAD_PROFILES_YAML,
+        )
+    )
+
+
+def _mtime(path: Path) -> float:
+    """Modification time, or zero when the file is missing.
+
+    A missing file is reported by whichever loader needs it, with a message
+    that names it. Raising here instead would attribute every missing file to
+    the configuration.
+    """
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+@st.cache_data(show_spinner="Loading trade book...")
+def load_cached_snapshot(
+    trades_csv: str,
+    source_mtimes: tuple[float, ...],
+) -> Snapshot:
+
+    return load_snapshot(trades_csv=Path(trades_csv))
 
 def render_dashboard(snapshot: Snapshot) -> None:
     """Render the complete position dashboard."""
@@ -624,9 +677,12 @@ def main() -> None:
     )
     st.markdown(STYLES, unsafe_allow_html=True)
 
+    trades_csv = _trades_csv()
+
     try:
         snapshot = load_cached_snapshot(
-            DEFAULT_TRADES_CSV.stat().st_mtime,
+            str(trades_csv),
+            _source_mtimes(trades_csv),
         )
     except EXPECTED_ERRORS as exc:
         _render_expected_error(exc)
