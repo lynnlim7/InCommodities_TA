@@ -275,7 +275,7 @@ def render_header(snapshot: Snapshot) -> None:
             '<div class="pp-header">'
             "<h1>Power Position</h1>"
             f'<div class="pp-asof">'
-            f"As of: {snapshot.as_of:%-d %b %Y}, {snapshot.as_of:%A}"
+            f"{snapshot.as_of:%-d %b %Y}, {snapshot.as_of:%A}"
             "</div>"
             "</div>"
         ),
@@ -495,9 +495,9 @@ def render_data_quality(snapshot: Snapshot) -> None:
     st.markdown(
         (
             '<div class="pp-recon">'
-            f"Trades read: {result.rows_read:,} &nbsp;·&nbsp; "
-            f"counted: {len(result.trade_book):,} &nbsp;·&nbsp; "
-            f"quarantined: {quarantined:,}"
+            f"Trades Read: {result.rows_read:,} &nbsp;·&nbsp; "
+            f"Counted: {len(result.trade_book):,} &nbsp;·&nbsp; "
+            f"Quarantined: {quarantined:,}"
             "</div>"
         ),
         unsafe_allow_html=True,
