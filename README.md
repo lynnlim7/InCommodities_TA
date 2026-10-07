@@ -37,6 +37,11 @@ make setup
 make run-local
 ```
 
+To see the data-quality handling, run the demo trade book, which contains deliberate bad rows. It also mounts the config and data folders, so YAML edits show on refresh:
+```bash
+make demo
+```
+
 ### Verification
 Run the complete test suite with: 
 ```bash
@@ -46,7 +51,7 @@ make check
 
 ## Business interpretation
 
-The tool answers the operational question: **for each configured area, how many MW and MWh is the desk long or short over each upcoming reporting period, and is it long or short in every hour of it?**
+The tool answers the operational question: **for each configured area, how many MW and MWh is the desk long or short over each upcoming reporting period?**
 
 Trades are converted into their applicable delivery hours according to their structured delivery dates and load profile. 
 
@@ -85,7 +90,7 @@ The dashboard also provides trade level details so that reported positions can b
 | 13 | **Price is input metadata, not a position driver.** It is validated at the CSV boundary but is not used to calculate physical MW exposure. |
 | 14 | **Fail closed on the file, isolate bad rows.** A structural or calculation failure stops the run. A bad row is quarantined, never silently ignored: it is listed with its reason, and every position it could have moved is explicitly marked incomplete. One malformed trade does not blind the desk. |
 | 15 | **Configured reference data is authoritative.** A trade referencing an unsupported area, trade type or load profile is quarantined and reported rather than disappearing from the report. Trade types are validated against `trade_types.yaml` but do not alter the position formula. |
-| 16 | **Zero positions are explicit.** The calculation builds deterministic rows for every configured area and period combination so zero exposure can be distinguished from missing calculation output. A block with no hours in a period (Peak on a Saturday) is shown as a dash rather than as flat. |
+| 16 | **Zero positions are explicit.** The calculation builds deterministic rows for every configured area and period combination so zero exposure can be distinguished from missing calculation output. |
 | 17 | **Reporting units.** Each period reports net MW and net MWh from one signed MW-hour total. MWh is the energy delivered into that period only; it is not a running cumulative total across periods, so the periods of one view never double-count a long-dated trade. |
 | 18 | **Displayed precision.** MW is shown at two decimal places and MWh at whole units. Energy totals run into the thousands, where a fractional part is not actionable. Rounding is half-up and applies to presentation only; the stored values stay exact `Decimal`. |
 | 19 | **Curve resolution.** The curve is hourly. Every current profile is a whole-hour shape on JST calendar days, so an hour is the finest resolution any trade can change. |
@@ -170,7 +175,7 @@ The repository reports every problem in one pass. A bad row is quarantined and t
 ### Configuration and extensibility
 Reference data and configurable profile parameters are separated from calculation behaviour. 
 
-The current design allows common extensionssuch as additional Japanese delivery areas or profiles using existing delivery behaviour to be introduced without changing the central aggregation logic.
+The current design allows common extensions, such as additional Japanese delivery areas or profiles using existing delivery behaviour to be introduced without changing the central aggregation logic.
 
 New source systems can similarly be introduced by normalizing their data into the same domain representation.
 
@@ -186,7 +191,7 @@ Quarantined rows are surfaced to the user, and affected reporting periods are id
 
 ### Testing strategy
 
-The test suite is focuses primarly on deterministic behaviour:
+The test suite focuses primarily on deterministic behaviour:
 
 - Buy/Sell sign conventions;
 - delivery interval boundaries;
@@ -194,9 +199,9 @@ The test suite is focuses primarly on deterministic behaviour:
 - load-profile delivery behaviour;
 - overlapping trades and profiles;
 - MW/MWh calculations;
-- partial period exposures 
+- partial period exposures;
 - separation between delivery areas;
-- validation and error handling
+- validation, quarantine and error handling.
 
 Lightweight integration path also verifies that an input trade book can be loaded, normalized and converted into the expected position output.
 
