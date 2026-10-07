@@ -84,9 +84,6 @@ class Trade:
     load_profile: str
     delivery: DeliveryPeriod
     volume_mw: Decimal
-    # Descriptive label only, never parsed: delivery comes from the structured
-    # fields above. Carried so a position can be explained in the trader's own
-    # product vocabulary.
     product: str = ""
 
     @property
@@ -197,18 +194,13 @@ class ReferenceData:
 
 @dataclass(frozen=True, slots=True)
 class ExcludedTrade:
-    """A quarantined trade, with whatever could still be read of it.
-
-    An unreadable area or delivery is None and treated as "could be any",
-    so every position the trade might have moved is marked incomplete.
-    """
+    """A quarantined trade, with whatever could still be read of it."""
 
     trade_id: str | None
     area: str | None
     delivery: DeliveryPeriod | None
 
     def may_affect(self, area: str, period: DeliveryPeriod) -> bool:
-        """Whether this trade could have contributed to ``area`` over ``period``."""
         area_matches = self.area is None or self.area == area
         period_matches = self.delivery is None or self.delivery.overlap(period)
         return area_matches and period_matches

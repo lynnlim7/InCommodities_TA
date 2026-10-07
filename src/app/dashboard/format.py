@@ -60,13 +60,6 @@ def format_energy(net_position_mwh: Decimal) -> str:
 
 
 def _format_signed(value: Decimal, precision: Decimal) -> str:
-    """Render a signed quantity at one precision, without a signed zero.
-
-    A long is always printed with an explicit ``+`` so direction is readable
-    without comparing against the neighbouring rows. A value too small to
-    print is shown unsigned: "-0" would imply a short the number does not
-    support, and the row colour still reports the real direction.
-    """
 
     rounded = value.quantize(
         precision, 
