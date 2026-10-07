@@ -17,13 +17,18 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from app.adapters.csv_repository import (
+    DEFAULT_TRADES_CSV,
+    CsvTradeRepository,
+    LoadResult,
+)
 from app.config.loader import (
     AREAS_YAML,
     LOAD_PROFILES_YAML,
     TRADE_TYPES_YAML,
     load_yaml,
 )
-from app.config.profiles import build_profile_registry
+from app.config.profile_registry import build_profile_registry
 from app.config.schema import AreasConfig, LoadProfilesConfig, TradeTypesConfig
 from app.core.calculations import calculate_positions, contributing_trades
 from app.core.models import (
@@ -37,15 +42,10 @@ from app.core.models import (
 )
 from app.core.periods import daily_periods, monthly_periods, weekly_periods
 from app.core.profiles import ProfileRegistry
-from app.dashboard.format import (
+from app.dashboard.formatting import (
     format_daily_label,
     format_monthly_label,
     format_weekly_label,
-)
-from app.infrastructure.csv_repository import (
-    DEFAULT_TRADES_CSV,
-    CsvTradeRepository,
-    LoadResult,
 )
 
 JST = ZoneInfo("Asia/Tokyo")

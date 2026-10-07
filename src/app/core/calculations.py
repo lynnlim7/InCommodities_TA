@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.core.curve import NetCurve, build_curves
+from app.core.curves import NetCurve, build_curves
 from app.core.models import (
     ZERO,
     BlockPosition,

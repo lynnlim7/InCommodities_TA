@@ -6,7 +6,7 @@ must name the line, the trade, the field, the value and the reason.
 
 import pytest
 
-from app.infrastructure.errors import RowError
+from app.adapters.errors import RowError
 
 pytestmark = pytest.mark.unit
 

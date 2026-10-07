@@ -1,5 +1,5 @@
 """
-Streamlit dashboard for Power Presentation Tool.
+Streamlit dashboard for Power Position Tool.
 
 The dashboard serves as a reporting layer. 
 Position calculation and trade aggregation are performed when the snapshot is loaded.
@@ -19,17 +19,17 @@ import streamlit as st
 import yaml
 from pydantic import ValidationError
 
+from app.adapters.csv_repository import DEFAULT_TRADES_CSV
+from app.adapters.errors import TradeSourceError
 from app.core.errors import PositionError
 from app.core.models import ExcludedTrade, ReportingPeriod
-from app.dashboard.format import (
+from app.dashboard.formatting import (
     PositionState,
     format_energy,
     format_position,
     position_state,
 )
 from app.dashboard.snapshot import PositionView, Snapshot, load_snapshot
-from app.infrastructure.csv_repository import DEFAULT_TRADES_CSV
-from app.infrastructure.errors import TradeSourceError
 
 PAGE_TITLE = "Power Position"
 

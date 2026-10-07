@@ -12,7 +12,7 @@
 .PHONY: setup
 
 PYTHON_PATH := src
-DASHBOARD := src/app/dashboard/app.py
+DASHBOARD := src/app/dashboard/main.py
 
 help: ## Show available commands.
 	@echo "Power Position Tool"

@@ -17,10 +17,10 @@ from decimal import Decimal
 
 import pytest
 
+from app.adapters.csv_repository import CsvTradeRepository
+from app.adapters.csv_schema import CSV_HEADERS
+from app.adapters.errors import TradeSourceError
 from app.core.models import BuySell, DeliveryPeriod, ReferenceData
-from app.infrastructure.csv_repository import CsvTradeRepository
-from app.infrastructure.errors import TradeSourceError
-from app.infrastructure.schemas import CSV_HEADERS
 
 pytestmark = pytest.mark.integration
 
