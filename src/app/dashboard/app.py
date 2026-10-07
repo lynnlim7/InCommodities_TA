@@ -10,11 +10,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Streamlit prepends the running script's own directory to sys.path. That
-# directory is inside the `app` package and this file is itself named
-# `app.py`, so the entry shadows the package and `import app.core` fails with
-# "'app' is not a package". Putting `src` first makes the real package win.
-# This must run before any `app.*` import.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from decimal import Decimal
@@ -39,15 +34,7 @@ from app.infrastructure.errors import TradeSourceError
 PAGE_TITLE = "Power Position"
 
 WARNING_SIGN = "\u26a0"
-
-# Areas are shown side by side so the book is read across rather than by
-# scrolling. Past this many, a position table gets too narrow to stay legible,
-# so further areas wrap onto another row.
 AREAS_PER_ROW = 3
-
-# Comfortable reading width for one area's position table. The table carries a
-# delivery label plus the MW and MWh readings, and the trade drill-down below
-# it is wider still, so this leaves both room to breathe without wrapping.
 AREA_COLUMN_WIDTH_PX = 620
 
 

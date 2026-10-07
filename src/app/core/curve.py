@@ -7,15 +7,6 @@ horizon, one curve per area. Every reported number is read off it:
     net MWh   = sum of the curve over the hours in a period
     net MW    = that sum / the number of hours
     min / max = the shortest and longest single hour
-
-Building the curve once and summarising it per period means:
-
-* Base, Peak and any future profile net into the hours they actually share,
-  instead of being reported as unrelated numbers.
-* A period's average can never hide an hour where the desk is the other way
-  round: the min and max come from the same curve.
-* Any horizon or bucket shape is a cheap read, because the trades have
-  already been placed once.
 """
 
 from __future__ import annotations
@@ -44,11 +35,7 @@ from app.core.profiles import HOURS_PER_DAY, LoadProfile, ProfileRegistry
 
 @dataclass(frozen=True, slots=True)
 class NetCurve:
-    """Hourly net MW for one area across the reporting horizon.
-
-    ``hourly_mw[i]`` is the net MW in hour ``i % 24`` of day ``i // 24``,
-    counted from ``horizon.start``.
-    """
+    """Hourly net MW for one area across the reporting horizon."""
 
     area: str
     horizon: DeliveryPeriod
@@ -59,7 +46,7 @@ class NetCurve:
         period: DeliveryPeriod,
         profile: LoadProfile,
     ) -> Exposure:
-        """Summarise the curve over the hours ``profile`` delivers in ``period``."""
+        """Summarise the curve over the hours."""
 
         values = self.values(period, profile)
 
@@ -78,7 +65,7 @@ class NetCurve:
         period: DeliveryPeriod,
         profile: LoadProfile,
     ) -> list[Decimal]:
-        """The curve's net MW in each hour ``profile`` delivers in ``period``."""
+        """The curve's net MW in each hour."""
 
         if not self.horizon.contains(period):
             raise PositionCalculationError(
@@ -106,21 +93,7 @@ def build_curves(
     supported_areas: frozenset[str],
     supported_trade_types: frozenset[str],
 ) -> dict[str, NetCurve]:
-    """Build one hourly net MW curve per supported area over ``horizon``.
-
-    Two passes keep the cost linear in trades plus hours, rather than trades
-    times hours, however long-dated the trades are:
-
-    1. Each trade adds its signed MW to a daily step list on the day its
-       delivery starts and removes it on the day it ends. A running sum of
-       that list then gives every day's net MW for one area and profile.
-    2. Each day's net MW is spread onto the hours its profile delivers that
-       day, and the profiles of one area are added together.
-
-    Every trade's area, trade type and profile is validated, even if it
-    delivers outside the horizon, so a bad reference fails the run rather
-    than vanishing.
-    """
+    """Build one hourly net MW curve per supported area over horizon."""
 
     daily_steps: dict[tuple[str, str], list[Decimal]] = {}
 
@@ -174,12 +147,7 @@ def _validate_references(
     supported_areas: frozenset[str],
     supported_trade_types: frozenset[str],
 ) -> None:
-    """Fail on any trade that references unconfigured reference data.
-
-    Area, trade type and load profile are all checked the same way: a
-    mistyped value is never guessed at or silently dropped, because a book
-    missing a trade still looks complete and can imply the wrong hedge.
-    """
+    """Fail on any trade that references unconfigured reference data."""
 
     if trade.area not in supported_areas:
         raise UnsupportedAreaError(
@@ -215,5 +183,5 @@ def _spread_onto_hours(
 
 
 def _day_index(horizon: DeliveryPeriod, day: date) -> int:
-    """Days from the start of the horizon to ``day``."""
+    """Days from the start of the horizon."""
     return (day - horizon.start).days
