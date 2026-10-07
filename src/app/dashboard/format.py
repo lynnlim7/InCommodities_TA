@@ -13,10 +13,6 @@ from app.core.models import DeliveryPeriod
 PositionState = Literal["long", "short", "flat"]
 
 POSITION_PRECISION = Decimal("0.01")
-
-# Energy is a cumulative total and runs into the thousands of MWh, where a
-# fractional part carries no information a trader would act on. MW is a rate
-# and is read at two places, so the two units are quantized differently.
 ENERGY_PRECISION = Decimal("1")
 
 def format_daily_label(delivery: DeliveryPeriod) -> str:
